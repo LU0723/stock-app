@@ -3,9 +3,8 @@ import { useState, useEffect } from 'react'
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
 const DEFAULT_HOLDINGS = [
-  { symbol: '00631L', name: '元大台灣50正2',  shares: 2000, avgCost: 354.95, price: 0, yesterdayClose: 0 },
-  { symbol: '00675L', name: '富邦臺灣加權正2', shares: 5000, avgCost: 178.68, price: 0, yesterdayClose: 0 },
-  { symbol: '2330',   name: '台積電',          shares: 1000, avgCost: 754.38, price: 0, yesterdayClose: 0 },
+  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 100, price: 0, yesterdayClose: 0 },
+  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 600, price: 0, yesterdayClose: 0 },
 ]
 
 // ─── localStorage ────────────────────────────────────────────────────────────
