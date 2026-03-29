@@ -3,13 +3,14 @@ import { useState, useEffect } from 'react'
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
 const DEFAULT_HOLDINGS = [
-  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 100, price: 0, yesterdayClose: 0 },
-  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 600, price: 0, yesterdayClose: 0 },
+  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 75,   price: 0, yesterdayClose: 0 },
+  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 1820, price: 0, yesterdayClose: 0 },
 ]
 
 // ─── localStorage ────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = 'stock-holdings'
+const STORAGE_KEY   = 'stock-holdings'
+const WATCHLIST_KEY = 'watchlist-stocks'
 
 function loadHoldings() {
   try {
@@ -23,51 +24,55 @@ function saveHoldings(holdings) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(holdings))
 }
 
-// ─── 股價抓取 ─────────────────────────────────────────────────────────────────
-//
-// 資料來源：TWSE MIS 即時行情 API（台灣證券交易所）
-// 透過 Vite Dev Proxy 轉發請求，避免瀏覽器 CORS 限制（見 vite.config.js）
-//
-// 欄位說明：
-//   z  = 即時成交價（盤中即時；盤後為最後收盤價；未開盤則為 "-"）
-//   y  = 昨日收盤價（參考價）
-//   c  = 股票代號
-//
-// 上市股票前綴 "tse_"，上櫃前綴 "otc_"
-// 同時送出兩種前綴，API 只回傳有效的那筆
+function loadWatchlist() {
+  try {
+    const saved = localStorage.getItem(WATCHLIST_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return DEFAULT_WATCHLIST
+}
 
-async function fetchPrices(holdings) {
-  if (holdings.length === 0) return holdings
+function saveWatchlist(list) {
+  localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list))
+}
 
-  // 每個 symbol 同時嘗試上市(tse)與上櫃(otc)，讓 API 自動篩選
-  const exChList = holdings
-    .flatMap(h => [`tse_${h.symbol}.tw`, `otc_${h.symbol}.tw`])
+// ─── 共用股價 API ─────────────────────────────────────────────────────────────
+//
+// fetchStockMap(symbols) → { [symbol]: { name, price, yesterdayClose } }
+// 可被庫存頁與自選股共用
+
+async function fetchStockMap(symbols) {
+  if (symbols.length === 0) return {}
+
+  const exChList = symbols
+    .flatMap(s => [`tse_${s}.tw`, `otc_${s}.tw`])
     .join('|')
 
   const url = `/api/stock?ex_ch=${exChList}`
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`TWSE MIS API 錯誤：${res.status}`)
+  if (!res.ok) throw new Error(`API 錯誤：${res.status}`)
 
-  const data = await res.json()
+  const data  = await res.json()
   const items = data.msgArray ?? []
 
-  // 建立 symbol → { price, yesterdayClose } 的對照表
-  const priceMap = {}
+  const map = {}
   for (const item of items) {
     const yesterdayClose = parseFloat(item.y)
-    // z = "-" 代表尚未開盤，此時以昨收當作目前參考價（今日損益顯示 0）
-    const price = item.z !== '-' ? parseFloat(item.z) : yesterdayClose
+    const price          = item.z !== '-' ? parseFloat(item.z) : yesterdayClose
     if (!isNaN(price) && !isNaN(yesterdayClose)) {
-      priceMap[item.c] = { price, yesterdayClose }
+      map[item.c] = { name: item.n, price, yesterdayClose }
     }
   }
+  return map
+}
 
-  // 套用最新價格到 holdings；找不到的保留原有資料
+// 庫存頁專用：套用價格到 holdings 陣列
+async function fetchPrices(holdings) {
+  if (holdings.length === 0) return holdings
+  const map = await fetchStockMap(holdings.map(h => h.symbol))
   return holdings.map(h => {
-    const found = priceMap[h.symbol]
-    if (found) {
-      return { ...h, price: found.price, yesterdayClose: found.yesterdayClose }
-    }
+    const found = map[h.symbol]
+    if (found) return { ...h, price: found.price, yesterdayClose: found.yesterdayClose }
     console.warn(`[股價更新] 找不到 ${h.symbol}（${h.name}），保留原有資料`)
     return h
   })
@@ -76,7 +81,6 @@ async function fetchPrices(holdings) {
 // ─── 計算邏輯 ─────────────────────────────────────────────────────────────────
 
 function calcStock(h) {
-  // 尚未取得價格（price = 0）時顯示 0，避免除以零
   if (h.price === 0 || h.yesterdayClose === 0) {
     return {
       code: h.symbol, name: h.name, shares: h.shares, avgCost: h.avgCost,
@@ -147,7 +151,6 @@ function TopBar({ lastUpdated, isFetching, onRefresh }) {
         <span className="text-xs text-white">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
         </span>
-        {/* 更新價格按鈕 */}
         <button
           onClick={onRefresh}
           disabled={isFetching}
@@ -222,17 +225,14 @@ function HoldingForm({ initial, onSave, onCancel }) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  // 股票代號失焦時，自動查詢股票名稱
   async function lookupName() {
     const sym = form.symbol.trim().toUpperCase()
-    if (!sym || form.name) return  // 已有名稱就不覆蓋
+    if (!sym || form.name) return
     setIsLookingUp(true)
     try {
-      const url = `/api/stock?ex_ch=tse_${sym}.tw|otc_${sym}.tw`
-      const res  = await fetch(url)
-      const data = await res.json()
-      const name = data.msgArray?.[0]?.n
-      if (name) set('name', name)
+      const map  = await fetchStockMap([sym])
+      const info = map[sym]
+      if (info?.name) set('name', info.name)
     } catch {}
     setIsLookingUp(false)
   }
@@ -389,25 +389,368 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
   )
 }
 
+// ─── 自選股資料 ───────────────────────────────────────────────────────────────
+
+// 加權指數：固定第一筆，不可移除
+const TAIEX_DATA = {
+  symbol: 'TWII', name: '加權指數', price: 0, yesterdayClose: 0,
+}
+
+// 預設假資料（localStorage 無資料時使用，price=0 → 載入後自動更新）
+const DEFAULT_WATCHLIST = [
+  { symbol: '0050', name: '元大台灣50', price: 0, yesterdayClose: 0 },
+  { symbol: '2408', name: '南亞科',     price: 0, yesterdayClose: 0 },
+  { symbol: '8440', name: '綠電',       price: 0, yesterdayClose: 0 },
+  { symbol: '6535', name: '順藥',       price: 0, yesterdayClose: 0 },
+  { symbol: '2031', name: '新光鋼',     price: 0, yesterdayClose: 0 },
+  { symbol: '2331', name: '精英',       price: 0, yesterdayClose: 0 },
+  { symbol: '2498', name: '宏達電',     price: 0, yesterdayClose: 0 },
+  { symbol: '2474', name: '可成',       price: 0, yesterdayClose: 0 },
+]
+
+// ─── 自選股新增表單 ───────────────────────────────────────────────────────────
+
+function WatchlistForm({ onSave, onCancel }) {
+  const [symbol,      setSymbol]      = useState('')
+  const [name,        setName]        = useState('')
+  const [isLookingUp, setIsLookingUp] = useState(false)
+  const [isAdding,    setIsAdding]    = useState(false)
+  const [error,       setError]       = useState('')
+
+  // 代號失焦時自動查詢名稱
+  async function lookupName() {
+    const sym = symbol.trim().toUpperCase()
+    if (!sym || name) return
+    setIsLookingUp(true)
+    setError('')
+    try {
+      const map  = await fetchStockMap([sym])
+      const info = map[sym]
+      if (info?.name) setName(info.name)
+    } catch {}
+    setIsLookingUp(false)
+  }
+
+  // 按「加入」時驗證代號並取得即時股價
+  async function handleSubmit(e) {
+    e.preventDefault()
+    const sym = symbol.trim().toUpperCase()
+    if (!sym) return
+
+    setIsAdding(true)
+    setError('')
+    try {
+      const map  = await fetchStockMap([sym])
+      const info = map[sym]
+      if (!info) {
+        setError(`找不到股票代號「${sym}」，請確認後重試`)
+        return
+      }
+      onSave({
+        symbol:        sym,
+        name:          info.name || name.trim() || sym,
+        price:         info.price,
+        yesterdayClose: info.yesterdayClose,
+      })
+    } catch {
+      setError('查詢失敗，請稍後再試')
+    } finally {
+      setIsAdding(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end">
+      <div className="w-full max-w-md mx-auto bg-[#1c1c1c] rounded-t-2xl border-t border-[#2a2a2a] p-5">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-white">新增自選股</h2>
+          <button onClick={onCancel} className="text-white p-1">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="text-xs text-white mb-1 block">股票代號</label>
+            <input
+              type="text" value={symbol}
+              onChange={e => { setSymbol(e.target.value); setError('') }}
+              onBlur={lookupName}
+              placeholder="例：2330"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">
+              股票名稱
+              {isLookingUp && <span className="text-white/50 ml-2 text-xs">查詢中...</span>}
+            </label>
+            <input
+              type="text" value={name} onChange={e => setName(e.target.value)}
+              placeholder="輸入代號後自動帶入"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]"
+            />
+          </div>
+
+          {/* 錯誤提示 */}
+          {error && (
+            <p className="text-xs text-yellow-500 bg-yellow-500/10 rounded-xl px-3 py-2">{error}</p>
+          )}
+
+          <div className="flex gap-2 mt-1">
+            <button type="button" onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl border border-[#333] text-white text-sm">取消</button>
+            <button type="submit" disabled={isAdding || !symbol.trim()}
+              className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-50">
+              {isAdding ? '查詢中...' : '加入'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── 自選股頁 ─────────────────────────────────────────────────────────────────
+
+function WatchlistPage() {
+  const [list,        setList]        = useState(loadWatchlist)
+  const [showForm,    setShowForm]    = useState(false)
+  const [isFetching,  setIsFetching]  = useState(false)
+  const [lastUpdated, setLastUpdated] = useState('--')
+
+  // 更新自選股清單所有股價
+  async function refreshWatchlist(currentList) {
+    if (currentList.length === 0) return
+    setIsFetching(true)
+    try {
+      const symbols = currentList.map(i => i.symbol)
+      const map     = await fetchStockMap(symbols)
+      const updated = currentList.map(item => {
+        const found = map[item.symbol]
+        if (found) return { ...item, price: found.price, yesterdayClose: found.yesterdayClose }
+        return item
+      })
+      setList(updated)
+      saveWatchlist(updated)
+      setLastUpdated(
+        new Date().toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      )
+    } catch (err) {
+      console.error('[自選股更新失敗]', err)
+    } finally {
+      setIsFetching(false)
+    }
+  }
+
+  // 頁面載入時自動更新一次
+  useEffect(() => {
+    refreshWatchlist(loadWatchlist())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function addItem(item) {
+    const next = [...list, item]
+    setList(next)
+    saveWatchlist(next)
+    setShowForm(false)
+  }
+
+  function deleteItem(symbol) {
+    const next = list.filter(i => i.symbol !== symbol)
+    setList(next)
+    saveWatchlist(next)
+  }
+
+  return (
+    <div className="px-4 pt-12 pb-4">
+      {/* 標題 + 更新時間 + 刷新按鈕 */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-lg font-semibold text-white tracking-wide">自選股</h1>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-white">
+            {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
+          </span>
+          <button
+            onClick={() => refreshWatchlist(list)}
+            disabled={isFetching}
+            className="text-white p-1 disabled:opacity-40"
+          >
+            <RefreshIcon spinning={isFetching} />
+          </button>
+        </div>
+      </div>
+
+      {/* 加權指數卡片（固定，不顯示刷新中的 --）*/}
+      <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] px-5 py-2 mb-4">
+        <p className="text-xs text-white/50 pt-3 pb-1 uppercase tracking-wider">大盤指數</p>
+        <WatchlistRow item={TAIEX_DATA} fixed />
+      </div>
+
+      {/* 自選股標題 + 新增按鈕 */}
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs text-white/50 uppercase tracking-wider">自選清單</p>
+        <div className="flex items-center gap-3">
+          <p className="text-xs text-white/50">{list.length} 檔</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-xs text-white border border-[#333] hover:border-[#555] rounded-lg px-2.5 py-1 transition-colors">
+            + 新增
+          </button>
+        </div>
+      </div>
+
+      {/* 自選股卡片 */}
+      {list.length === 0 ? (
+        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-8 text-center">
+          <p className="text-white text-sm">尚無自選股</p>
+          <p className="text-white/50 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+        </div>
+      ) : (
+        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] overflow-hidden">
+          {list.map(item => (
+            <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+          ))}
+        </div>
+      )}
+
+      {showForm && <WatchlistForm onSave={addItem} onCancel={() => setShowForm(false)} />}
+    </div>
+  )
+}
+
+function WatchlistRow({ item, fixed = false, onDelete }) {
+  const [showActions, setShowActions] = useState(false)
+
+  // 從 price / yesterdayClose 計算漲跌
+  const hasPrice    = item.price > 0 && item.yesterdayClose > 0
+  const changeAmt   = hasPrice ? item.price - item.yesterdayClose : 0
+  const changePct   = hasPrice ? (changeAmt / item.yesterdayClose) * 100 : 0
+  const changeColor = hasPrice ? twColor(changeAmt) : 'text-white/30'
+  const arrow       = changeAmt > 0 ? '▲' : changeAmt < 0 ? '▼' : ''
+  const sign        = changeAmt > 0 ? '+' : ''
+
+  return (
+    <div className="border-b border-[#252525] last:border-b-0">
+      <div
+        className="flex items-center px-5 py-4"
+        onClick={() => !fixed && setShowActions(prev => !prev)}
+      >
+        {/* 左：名稱 + 代號 */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium text-white leading-tight">{item.name}</p>
+          <p className="text-xs text-white/50 mt-1">{item.symbol}</p>
+        </div>
+
+        {/* 股價 */}
+        <div className="w-24 text-right">
+          <p className="text-base font-semibold text-white">
+            {hasPrice
+              ? (fixed ? item.price.toLocaleString() : item.price.toFixed(2))
+              : '--'}
+          </p>
+        </div>
+
+        {/* 漲跌點 + 漲跌幅% */}
+        <div className={`w-28 text-right ${changeColor}`}>
+          <p className="text-sm font-medium">
+            {hasPrice ? `${arrow}${Math.abs(changeAmt).toFixed(2)}` : '--'}
+          </p>
+          <p className="text-xs mt-1">
+            {hasPrice ? `${sign}${changePct.toFixed(2)}%` : '--'}
+          </p>
+        </div>
+      </div>
+
+      {/* 刪除動作列 */}
+      {showActions && !fixed && (
+        <div className="flex border-t border-[#222]">
+          <button
+            onClick={() => setShowActions(false)}
+            className="flex-1 py-2.5 text-xs text-white hover:bg-[#222] transition-colors">
+            取消
+          </button>
+          <div className="w-px bg-[#222]" />
+          <button
+            onClick={() => onDelete()}
+            className="flex-1 py-2.5 text-xs text-emerald-500 hover:text-red-400 hover:bg-[#222] transition-colors">
+            刪除
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── 底部導覽列 ───────────────────────────────────────────────────────────────
+
+function BottomNav({ activePage, onNavigate }) {
+  const tabs = [
+    {
+      id: 'portfolio',
+      label: '庫存',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="3" width="20" height="14" rx="2" />
+          <line x1="8" y1="21" x2="16" y2="21" />
+          <line x1="12" y1="17" x2="12" y2="21" />
+        </svg>
+      ),
+    },
+    {
+      id: 'watchlist',
+      label: '自選股',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      ),
+    },
+  ]
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#111] border-t border-[#222] max-w-md mx-auto">
+      <div className="flex">
+        {tabs.map(tab => {
+          const isActive = activePage === tab.id
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onNavigate(tab.id)}
+              className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors
+                ${isActive ? 'text-white' : 'text-white/40'}`}
+            >
+              {tab.icon}
+              <span className="text-[10px] font-medium tracking-wide">{tab.label}</span>
+              {isActive && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-white" />}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── App Root ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [holdings,    setHoldings]    = useState(loadHoldings)
-  const [modal,       setModal]       = useState(null)       // null | 'add' | index(number)
+  const [modal,       setModal]       = useState(null)
   const [isFetching,  setIsFetching]  = useState(false)
   const [fetchError,  setFetchError]  = useState(null)
   const [lastUpdated, setLastUpdated] = useState('--')
+  const [activePage,  setActivePage]  = useState('portfolio')
 
   const stocks  = holdings.map(calcStock)
   const summary = calcSummary(stocks, holdings)
 
-  // 更新持股並存回 localStorage
   function updateHoldings(newHoldings) {
     setHoldings(newHoldings)
     saveHoldings(newHoldings)
   }
 
-  // 抓取最新股價並更新 holdings
   async function refreshPrices(currentHoldings) {
     setIsFetching(true)
     setFetchError(null)
@@ -425,12 +768,10 @@ export default function App() {
     }
   }
 
-  // 頁面載入時自動更新一次
   useEffect(() => {
     refreshPrices(loadHoldings())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 新增持股後立刻抓取該股票的股價
   async function handleAdd(newHolding) {
     const newHoldings = [...holdings, newHolding]
     updateHoldings(newHoldings)
@@ -449,34 +790,44 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] max-w-md mx-auto pb-10">
-      <TopBar
-        lastUpdated={lastUpdated}
-        isFetching={isFetching}
-        onRefresh={() => refreshPrices(holdings)}
-      />
+    <div className="min-h-screen bg-[#0f0f0f] max-w-md mx-auto pb-24">
 
-      {/* 股價抓取失敗提示 */}
-      {fetchError && (
-        <p className="mx-4 mb-3 text-xs text-yellow-600 bg-yellow-600/10 rounded-xl px-3 py-2">
-          {fetchError}
-        </p>
+      {/* ── 庫存頁 ── */}
+      {activePage === 'portfolio' && (
+        <>
+          <TopBar
+            lastUpdated={lastUpdated}
+            isFetching={isFetching}
+            onRefresh={() => refreshPrices(holdings)}
+          />
+          {fetchError && (
+            <p className="mx-4 mb-3 text-xs text-yellow-600 bg-yellow-600/10 rounded-xl px-3 py-2">
+              {fetchError}
+            </p>
+          )}
+          <SummaryCard summary={summary} />
+          <StockList
+            stocks={stocks}
+            onAdd={() => setModal('add')}
+            onEdit={(index) => setModal(index)}
+            onDelete={handleDelete}
+          />
+        </>
       )}
 
-      <SummaryCard summary={summary} />
-      <StockList
-        stocks={stocks}
-        onAdd={() => setModal('add')}
-        onEdit={(index) => setModal(index)}
-        onDelete={handleDelete}
-      />
+      {/* ── 自選股頁 ── */}
+      {activePage === 'watchlist' && <WatchlistPage />}
 
+      {/* ── 新增 / 編輯 Modal ── */}
       {modal === 'add' && (
         <HoldingForm initial={null} onSave={handleAdd} onCancel={() => setModal(null)} />
       )}
       {typeof modal === 'number' && (
         <HoldingForm initial={holdings[modal]} onSave={handleEdit} onCancel={() => setModal(null)} />
       )}
+
+      {/* ── 底部導覽 ── */}
+      <BottomNav activePage={activePage} onNavigate={setActivePage} />
     </div>
   )
 }
