@@ -200,7 +200,7 @@ function SummaryCard({ summary }) {
         <div>
           <p className="text-xs text-gray-500 mb-1">股票市值</p>
           <p className="text-lg font-semibold text-white">{formatNumber(summary.marketValue)}</p>
-          <p className="text-xs text-gray-600 mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
+          <p className="text-xs text-white mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
         </div>
       </div>
     </div>
