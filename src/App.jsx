@@ -125,7 +125,7 @@ function formatNumber(n) {
 function twColor(value) {
   if (value > 0) return 'text-red-400'
   if (value < 0) return 'text-emerald-400'
-  return 'text-gray-400'
+  return 'text-white'
 }
 
 function PnLText({ value, className = '' }) {
@@ -145,14 +145,14 @@ function TopBar({ lastUpdated, isFetching, onRefresh }) {
     <div className="flex items-center justify-between px-4 pt-12 pb-4">
       <h1 className="text-lg font-semibold text-white tracking-wide">我的持股</h1>
       <div className="flex items-center gap-3">
-        <span className="text-xs text-gray-500">
+        <span className="text-xs text-white">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
         </span>
         {/* 更新價格按鈕 */}
         <button
           onClick={onRefresh}
           disabled={isFetching}
-          className="text-gray-400 hover:text-white transition-colors p-1 disabled:opacity-40"
+          className="text-white transition-colors p-1 disabled:opacity-40"
           title="更新股價"
         >
           <RefreshIcon spinning={isFetching} />
@@ -183,7 +183,7 @@ function SummaryCard({ summary }) {
   return (
     <div className="mx-4 mb-4 bg-[#1a1a1a] rounded-2xl p-4 border border-[#2a2a2a]">
       <div className="mb-4 pb-4 border-b border-[#2a2a2a]">
-        <p className="text-xs text-gray-500 mb-1 uppercase tracking-wider">今日損益</p>
+        <p className="text-xs text-white mb-1 uppercase tracking-wider">今日損益</p>
         <p className={`text-4xl font-bold ${todayColor}`}>
           {todaySign}{formatNumber(summary.todayPnL)}
         </p>
@@ -191,14 +191,14 @@ function SummaryCard({ summary }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <p className="text-xs text-gray-500 mb-1">累積損益</p>
+          <p className="text-xs text-white mb-1">累積損益</p>
           <PnLText value={summary.totalPnL} className="text-lg font-semibold" />
           <div className="mt-0.5">
             <PercentText value={summary.totalPnLPercent} className="text-xs" />
           </div>
         </div>
         <div>
-          <p className="text-xs text-gray-500 mb-1">股票市值</p>
+          <p className="text-xs text-white mb-1">股票市值</p>
           <p className="text-lg font-semibold text-white">{formatNumber(summary.marketValue)}</p>
           <p className="text-xs text-white mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
         </div>
@@ -258,7 +258,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
       <div className="w-full max-w-md mx-auto bg-[#1c1c1c] rounded-t-2xl border-t border-[#2a2a2a] p-5">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-base font-semibold text-white">{isEdit ? '編輯持股' : '新增持股'}</h2>
-          <button onClick={onCancel} className="text-gray-500 hover:text-white p-1">
+          <button onClick={onCancel} className="text-white p-1">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
             </svg>
@@ -266,7 +266,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
         </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-3">
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">股票代號</label>
+            <label className="text-xs text-white mb-1 block">股票代號</label>
             <input type="text" value={form.symbol}
               onChange={e => set('symbol', e.target.value)}
               onBlur={lookupName}
@@ -274,9 +274,9 @@ function HoldingForm({ initial, onSave, onCancel }) {
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
           </div>
           <div>
-            <label className="text-xs text-gray-500 mb-1 block">
+            <label className="text-xs text-white mb-1 block">
               股票名稱
-              {isLookingUp && <span className="text-gray-600 ml-2">查詢中...</span>}
+              {isLookingUp && <span className="text-white ml-2">查詢中...</span>}
             </label>
             <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
               placeholder="輸入代號後自動帶入，或手動填寫"
@@ -284,22 +284,22 @@ function HoldingForm({ initial, onSave, onCancel }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">持股股數</label>
+              <label className="text-xs text-white mb-1 block">持股股數</label>
               <input type="number" value={form.shares} onChange={e => set('shares', e.target.value)}
                 placeholder="例：1000" min="1"
                 className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">平均成本</label>
+              <label className="text-xs text-white mb-1 block">平均成本</label>
               <input type="number" value={form.avgCost} onChange={e => set('avgCost', e.target.value)}
                 placeholder="例：750" min="0.01" step="0.01"
                 className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
             </div>
           </div>
-          <p className="text-xs text-gray-600">現價與昨收將在儲存後自動更新。</p>
+          <p className="text-xs text-white">現價與昨收將在儲存後自動更新。</p>
           <div className="flex gap-2 mt-1">
             <button type="button" onClick={onCancel}
-              className="flex-1 py-2.5 rounded-xl border border-[#333] text-gray-400 text-sm">取消</button>
+              className="flex-1 py-2.5 rounded-xl border border-[#333] text-white text-sm">取消</button>
             <button type="submit"
               className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-medium">儲存</button>
           </div>
@@ -348,7 +348,7 @@ function StockRow({ stock, onEdit, onDelete }) {
       {showActions && (
         <div className="flex border-t border-[#222]">
           <button onClick={() => { setShowActions(false); onEdit() }}
-            className="flex-1 py-2.5 text-xs text-gray-400 hover:text-white hover:bg-[#222] transition-colors">編輯</button>
+            className="flex-1 py-2.5 text-xs text-white hover:bg-[#222] transition-colors">編輯</button>
           <div className="w-px bg-[#222]" />
           <button onClick={() => onDelete()}
             className="flex-1 py-2.5 text-xs text-emerald-500 hover:text-red-400 hover:bg-[#222] transition-colors">刪除</button>
@@ -364,19 +364,19 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
   return (
     <div className="mx-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-gray-500 uppercase tracking-wider">持股明細</p>
+        <p className="text-xs text-white uppercase tracking-wider">持股明細</p>
         <div className="flex items-center gap-3">
-          <p className="text-xs text-gray-600">{stocks.length} 檔</p>
+          <p className="text-xs text-white">{stocks.length} 檔</p>
           <button onClick={onAdd}
-            className="text-xs text-gray-400 hover:text-white border border-[#333] hover:border-[#555] rounded-lg px-2.5 py-1 transition-colors">
+            className="text-xs text-white border border-[#333] hover:border-[#555] rounded-lg px-2.5 py-1 transition-colors">
             + 新增
           </button>
         </div>
       </div>
       {stocks.length === 0 ? (
         <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-8 text-center">
-          <p className="text-gray-600 text-sm">尚無持股</p>
-          <p className="text-gray-700 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+          <p className="text-white text-sm">尚無持股</p>
+          <p className="text-white text-xs mt-1">點擊「+ 新增」加入第一筆</p>
         </div>
       ) : (
         <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] overflow-hidden">
