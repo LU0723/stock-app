@@ -392,8 +392,9 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
 // ─── 自選股資料 ───────────────────────────────────────────────────────────────
 
 // 加權指數：固定第一筆，不可移除
-const TAIEX_DATA = {
-  symbol: 'TWII', name: '加權指數', price: 0, yesterdayClose: 0,
+// TWSE MIS API 的加權指數代號是 t00（不是 TWII）
+const TAIEX_INIT = {
+  symbol: 't00', name: '加權指數', price: 0, yesterdayClose: 0,
 }
 
 // 預設假資料（localStorage 無資料時使用，price=0 → 載入後自動更新）
@@ -516,17 +517,26 @@ function WatchlistForm({ onSave, onCancel }) {
 
 function WatchlistPage() {
   const [list,        setList]        = useState(loadWatchlist)
+  const [taiex,       setTaiex]       = useState(TAIEX_INIT)
   const [showForm,    setShowForm]    = useState(false)
   const [isFetching,  setIsFetching]  = useState(false)
   const [lastUpdated, setLastUpdated] = useState('--')
 
-  // 更新自選股清單所有股價
+  // 更新自選股清單 + 加權指數
   async function refreshWatchlist(currentList) {
-    if (currentList.length === 0) return
     setIsFetching(true)
     try {
-      const symbols = currentList.map(i => i.symbol)
+      // 加權指數 (t00) 和自選股一起送出，一次 API 呼叫
+      const symbols = ['t00', ...currentList.map(i => i.symbol)]
       const map     = await fetchStockMap(symbols)
+
+      // 更新加權指數
+      const taiexInfo = map['t00']
+      if (taiexInfo) {
+        setTaiex({ ...TAIEX_INIT, price: taiexInfo.price, yesterdayClose: taiexInfo.yesterdayClose })
+      }
+
+      // 更新自選股清單
       const updated = currentList.map(item => {
         const found = map[item.symbol]
         if (found) return { ...item, price: found.price, yesterdayClose: found.yesterdayClose }
@@ -584,7 +594,7 @@ function WatchlistPage() {
       {/* 加權指數卡片（固定，不顯示刷新中的 --）*/}
       <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] px-5 py-2 mb-4">
         <p className="text-xs text-white/50 pt-3 pb-1 uppercase tracking-wider">大盤指數</p>
-        <WatchlistRow item={TAIEX_DATA} fixed />
+        <WatchlistRow item={taiex} fixed />
       </div>
 
       {/* 自選股標題 + 新增按鈕 */}
