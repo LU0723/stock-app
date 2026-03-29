@@ -330,19 +330,19 @@ function StockRow({ stock, onEdit, onDelete }) {
         </div>
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">今日</span>
+            <span className="text-sm text-gray-400">今日</span>
             <PnLText value={stock.todayPnL} className="text-sm font-medium" />
           </div>
           <div className="flex items-center gap-1">
-            <span className="text-xs text-gray-500">累積</span>
+            <span className="text-sm text-gray-400">累積</span>
             <PnLText value={stock.totalPnL} className="text-sm font-medium" />
             <PercentText value={stock.returnRate} className="text-xs" />
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-600">{formatNumber(stock.shares)} 股</span>
-          <span className="text-gray-700 text-xs">·</span>
-          <span className="text-xs text-gray-600">均價 {stock.avgCost.toFixed(2)}</span>
+          <span className="text-sm text-gray-400">{formatNumber(stock.shares)} 股</span>
+          <span className="text-sm text-gray-500">·</span>
+          <span className="text-sm text-gray-400">均價 {stock.avgCost.toFixed(2)}</span>
         </div>
       </div>
       {showActions && (
