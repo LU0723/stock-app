@@ -45,7 +45,7 @@ async function fetchPrices(holdings) {
     .flatMap(h => [`tse_${h.symbol}.tw`, `otc_${h.symbol}.tw`])
     .join('|')
 
-  const url = `/mis-api/stock/api/getStockInfo.jsp?ex_ch=${exChList}&json=1&delay=0`
+  const url = `/api/stock?ex_ch=${exChList}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`TWSE MIS API 錯誤：${res.status}`)
 
@@ -229,7 +229,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
     if (!sym || form.name) return  // 已有名稱就不覆蓋
     setIsLookingUp(true)
     try {
-      const url = `/mis-api/stock/api/getStockInfo.jsp?ex_ch=tse_${sym}.tw|otc_${sym}.tw&json=1&delay=0`
+      const url = `/api/stock?ex_ch=tse_${sym}.tw|otc_${sym}.tw`
       const res  = await fetch(url)
       const data = await res.json()
       const name = data.msgArray?.[0]?.n

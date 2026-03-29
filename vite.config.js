@@ -51,7 +51,7 @@ export default defineConfig({
         runtimeCaching: [
           {
             // 股價 API：永遠走網路，不快取（確保資料即時）
-            urlPattern: /\/mis-api\/.*/,
+            urlPattern: /\/api\/stock.*/,
             handler: 'NetworkOnly',
           },
         ],
