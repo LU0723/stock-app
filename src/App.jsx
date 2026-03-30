@@ -456,7 +456,7 @@ const DEFAULT_WATCHLIST = [
 
 // ─── 自選股新增表單 ───────────────────────────────────────────────────────────
 
-function WatchlistForm({ onSave, onCancel }) {
+function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
   const [symbol,      setSymbol]      = useState('')
   const [name,        setName]        = useState('')
   const [isLookingUp, setIsLookingUp] = useState(false)
@@ -482,6 +482,11 @@ function WatchlistForm({ onSave, onCancel }) {
     e.preventDefault()
     const sym = symbol.trim().toUpperCase()
     if (!sym) return
+
+    if (existingSymbols.includes(sym)) {
+      setError(`${sym} 已在自選股中`)
+      return
+    }
 
     setIsAdding(true)
     setError('')
@@ -720,7 +725,7 @@ function WatchlistPage() {
         </DndContext>
       )}
 
-      {showForm && <WatchlistForm onSave={addItem} onCancel={() => setShowForm(false)} />}
+      {showForm && <WatchlistForm existingSymbols={list.map(i => i.symbol)} onSave={addItem} onCancel={() => setShowForm(false)} />}
     </div>
   )
 }
