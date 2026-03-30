@@ -57,11 +57,14 @@ async function fetchStockMap(symbols) {
 
   const map = {}
   for (const item of items) {
-    const yc    = parseFloat(item.y)
-    const rawZ  = item.z !== '-' ? parseFloat(item.z) : NaN
-    const price = !isNaN(rawZ) ? rawZ : (!isNaN(yc) ? yc : NaN)
-    if (!isNaN(price)) {
-      map[item.c] = { name: item.n, price, yesterdayClose: isNaN(yc) ? 0 : yc }
+    if (!item.c) continue
+    const yc   = parseFloat(item.y)
+    const rawZ = item.z !== '-' ? parseFloat(item.z) : null
+    if (rawZ === null && isNaN(yc)) continue
+    map[item.c] = {
+      name:          item.n,
+      price:         (rawZ !== null && !isNaN(rawZ)) ? rawZ : null,  // null = 當下無成交
+      yesterdayClose: !isNaN(yc) ? yc : 0,
     }
   }
   return map
@@ -73,9 +76,14 @@ async function fetchPrices(holdings) {
   const map = await fetchStockMap(holdings.map(h => h.symbol))
   return holdings.map(h => {
     const found = map[h.symbol]
-    if (found) return { ...h, price: found.price, yesterdayClose: found.yesterdayClose }
-    console.warn(`[股價更新] 找不到 ${h.symbol}（${h.name}），保留原有資料`)
-    return h
+    if (!found) {
+      console.warn(`[股價更新] 找不到 ${h.symbol}（${h.name}），保留原有資料`)
+      return h
+    }
+    // price: 有即時成交價用它；否則保留已存價格（若從未有資料才用昨收補底）
+    const price = found.price !== null ? found.price
+                : (h.price > 0 ? h.price : found.yesterdayClose)
+    return { ...h, price, yesterdayClose: found.yesterdayClose }
   })
 }
 
@@ -534,14 +542,17 @@ function WatchlistPage() {
       // 更新加權指數
       const taiexInfo = map['t00']
       if (taiexInfo) {
-        setTaiex({ ...TAIEX_INIT, price: taiexInfo.price, yesterdayClose: taiexInfo.yesterdayClose })
+        const taiexPrice = taiexInfo.price !== null ? taiexInfo.price : taiex.price
+        setTaiex({ ...TAIEX_INIT, price: taiexPrice, yesterdayClose: taiexInfo.yesterdayClose })
       }
 
       // 更新自選股清單
       const updated = currentList.map(item => {
         const found = map[item.symbol]
-        if (found) return { ...item, price: found.price, yesterdayClose: found.yesterdayClose }
-        return item
+        if (!found) return item
+        const price = found.price !== null ? found.price
+                    : (item.price > 0 ? item.price : found.yesterdayClose)
+        return { ...item, price, yesterdayClose: found.yesterdayClose }
       })
       setList(updated)
       saveWatchlist(updated)
