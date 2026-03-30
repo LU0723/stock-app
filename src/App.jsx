@@ -49,7 +49,7 @@ async function fetchStockMap(symbols) {
     .join('|')
 
   const url = `/api/stock?ex_ch=${exChList}`
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-store' })
   if (!res.ok) throw new Error(`API 錯誤：${res.status}`)
 
   const data  = await res.json()
@@ -57,10 +57,11 @@ async function fetchStockMap(symbols) {
 
   const map = {}
   for (const item of items) {
-    const yesterdayClose = parseFloat(item.y)
-    const price          = item.z !== '-' ? parseFloat(item.z) : yesterdayClose
-    if (!isNaN(price) && !isNaN(yesterdayClose)) {
-      map[item.c] = { name: item.n, price, yesterdayClose }
+    const yc    = parseFloat(item.y)
+    const rawZ  = item.z !== '-' ? parseFloat(item.z) : NaN
+    const price = !isNaN(rawZ) ? rawZ : (!isNaN(yc) ? yc : NaN)
+    if (!isNaN(price)) {
+      map[item.c] = { name: item.n, price, yesterdayClose: isNaN(yc) ? 0 : yc }
     }
   }
   return map
