@@ -785,7 +785,9 @@ export default function App() {
   const [isFetching,  setIsFetching]  = useState(false)
   const [fetchError,  setFetchError]  = useState(null)
   const [lastUpdated, setLastUpdated] = useState('--')
-  const [activePage,  setActivePage]  = useState('portfolio')
+  const [activePage,  setActivePage]  = useState(
+    () => localStorage.getItem('activeTab') ?? 'portfolio'
+  )
 
   const stocks  = holdings.map(calcStock)
   const summary = calcSummary(stocks, holdings)
@@ -871,7 +873,10 @@ export default function App() {
       )}
 
       {/* ── 底部導覽 ── */}
-      <BottomNav activePage={activePage} onNavigate={setActivePage} />
+      <BottomNav activePage={activePage} onNavigate={page => {
+        localStorage.setItem('activeTab', page)
+        setActivePage(page)
+      }} />
     </div>
   )
 }
