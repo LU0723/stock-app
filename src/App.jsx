@@ -597,51 +597,50 @@ function WatchlistPage() {
   }
 
   return (
-    <div className="px-4 pt-12 pb-4">
-      {/* 標題 + 更新時間 + 刷新按鈕 */}
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-lg font-semibold text-white tracking-wide">自選股</h1>
+    <div className="pb-4">
+      {/* 標題列 */}
+      <div className="flex items-center justify-between px-4 pt-12 pb-3 border-b border-gray-100">
+        <h1 className="text-lg font-semibold text-gray-900 tracking-wide">自選股</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-white">
+          <span className="text-xs text-gray-400">
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
           </span>
           <button
             onClick={() => refreshWatchlist(list)}
             disabled={isFetching}
-            className="text-white p-1 disabled:opacity-40"
+            className="text-gray-400 p-1 disabled:opacity-40"
           >
             <RefreshIcon spinning={isFetching} />
           </button>
         </div>
       </div>
 
-      {/* 加權指數卡片（固定，不顯示刷新中的 --）*/}
-      <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] px-5 py-2 mb-4">
-        <p className="text-xs text-white/50 pt-3 pb-1 uppercase tracking-wider">大盤指數</p>
+      {/* 加權指數列 */}
+      <div className="border-b border-gray-100">
+        <div className="px-4 pt-2 pb-0.5">
+          <p className="text-[10px] text-gray-400 uppercase tracking-wider">大盤指數</p>
+        </div>
         <WatchlistRow item={taiex} fixed />
       </div>
 
-      {/* 自選股標題 + 新增按鈕 */}
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-xs text-white/50 uppercase tracking-wider">自選清單</p>
-        <div className="flex items-center gap-3">
-          <p className="text-xs text-white/50">{list.length} 檔</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="text-xs text-white border border-[#333] hover:border-[#555] rounded-lg px-2.5 py-1 transition-colors">
-            + 新增
-          </button>
-        </div>
+      {/* 自選清單標題 */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+        <p className="text-[10px] text-gray-400 uppercase tracking-wider">自選清單 {list.length} 檔</p>
+        <button
+          onClick={() => setShowForm(true)}
+          className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
+          + 新增
+        </button>
       </div>
 
-      {/* 自選股卡片 */}
+      {/* 自選股列表 */}
       {list.length === 0 ? (
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-8 text-center">
-          <p className="text-white text-sm">尚無自選股</p>
-          <p className="text-white/50 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+        <div className="p-10 text-center">
+          <p className="text-gray-400 text-sm">尚無自選股</p>
+          <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
         </div>
       ) : (
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] overflow-hidden">
+        <div>
           {list.map(item => (
             <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
           ))}
@@ -660,25 +659,27 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
   const hasPrice    = item.price > 0 && item.yesterdayClose > 0
   const changeAmt   = hasPrice ? item.price - item.yesterdayClose : 0
   const changePct   = hasPrice ? (changeAmt / item.yesterdayClose) * 100 : 0
-  const changeColor = hasPrice ? twColor(changeAmt) : 'text-white/30'
-  const arrow       = changeAmt > 0 ? '▲' : changeAmt < 0 ? '▼' : ''
-  const sign        = changeAmt > 0 ? '+' : ''
+  const changeColor = hasPrice
+    ? (changeAmt > 0 ? 'text-red-500' : changeAmt < 0 ? 'text-green-600' : 'text-gray-400')
+    : 'text-gray-300'
+  const arrow = changeAmt > 0 ? '▲' : changeAmt < 0 ? '▼' : ''
+  const sign  = changeAmt > 0 ? '+' : ''
 
   return (
-    <div className="border-b border-[#252525] last:border-b-0">
+    <div className="border-b border-gray-100 last:border-b-0">
       <div
-        className="flex items-center px-5 py-4"
+        className="flex items-center px-4 py-3"
         onClick={() => !fixed && setShowActions(prev => !prev)}
       >
         {/* 左：名稱 + 代號 */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-white leading-tight">{item.name}</p>
-          <p className="text-xs text-white/50 mt-1">{item.symbol}</p>
+          <p className="text-sm font-medium text-gray-900 leading-tight">{item.name}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{item.symbol}</p>
         </div>
 
         {/* 股價 */}
         <div className="w-24 text-right">
-          <p className="text-base font-semibold text-white">
+          <p className={`text-base font-semibold ${changeColor}`}>
             {hasPrice
               ? (fixed ? item.price.toLocaleString() : item.price.toFixed(2))
               : '--'}
@@ -687,10 +688,10 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
 
         {/* 漲跌點 + 漲跌幅% */}
         <div className={`w-28 text-right ${changeColor}`}>
-          <p className="text-sm font-medium">
+          <p className="text-sm">
             {hasPrice ? `${arrow}${Math.abs(changeAmt).toFixed(2)}` : '--'}
           </p>
-          <p className="text-xs mt-1">
+          <p className="text-xs mt-0.5">
             {hasPrice ? `${sign}${changePct.toFixed(2)}%` : '--'}
           </p>
         </div>
@@ -698,16 +699,16 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
 
       {/* 刪除動作列 */}
       {showActions && !fixed && (
-        <div className="flex border-t border-[#222]">
+        <div className="flex border-t border-gray-100">
           <button
             onClick={() => setShowActions(false)}
-            className="flex-1 py-2.5 text-xs text-white hover:bg-[#222] transition-colors">
+            className="flex-1 py-2.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
             取消
           </button>
-          <div className="w-px bg-[#222]" />
+          <div className="w-px bg-gray-100" />
           <button
             onClick={() => onDelete()}
-            className="flex-1 py-2.5 text-xs text-emerald-500 hover:text-red-400 hover:bg-[#222] transition-colors">
+            className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">
             刪除
           </button>
         </div>
@@ -744,21 +745,26 @@ function BottomNav({ activePage, onNavigate }) {
     },
   ]
 
+  const isLight = activePage === 'watchlist'
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 bg-[#111] border-t border-[#222] max-w-md mx-auto">
+    <div className={`fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t
+      ${isLight ? 'bg-white border-gray-200' : 'bg-[#111] border-[#222]'}`}>
       <div className="flex">
         {tabs.map(tab => {
           const isActive = activePage === tab.id
+          const activeColor  = isLight ? 'text-gray-900' : 'text-white'
+          const inactiveColor = isLight ? 'text-gray-300' : 'text-white/40'
+          const dotColor     = isLight ? 'bg-gray-900' : 'bg-white'
           return (
             <button
               key={tab.id}
               onClick={() => onNavigate(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors
-                ${isActive ? 'text-white' : 'text-white/40'}`}
+                ${isActive ? activeColor : inactiveColor}`}
             >
               {tab.icon}
               <span className="text-[10px] font-medium tracking-wide">{tab.label}</span>
-              {isActive && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-white" />}
+              {isActive && <span className={`absolute bottom-1 w-1 h-1 rounded-full ${dotColor}`} />}
             </button>
           )
         })}
@@ -824,7 +830,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] max-w-md mx-auto pb-24">
+    <div className={`min-h-screen max-w-md mx-auto pb-24 ${activePage === 'portfolio' ? 'bg-[#0f0f0f]' : 'bg-white'}`}>
 
       {/* ── 庫存頁 ── */}
       {activePage === 'portfolio' && (
