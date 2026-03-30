@@ -1,4 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
+import {
+  DndContext, closestCenter,
+  PointerSensor, TouchSensor,
+  useSensor, useSensors,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy,
+  useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
@@ -9,8 +19,13 @@ const DEFAULT_HOLDINGS = [
 
 // ─── localStorage ────────────────────────────────────────────────────────────
 
-const STORAGE_KEY   = 'stock-holdings'
-const WATCHLIST_KEY = 'watchlist-stocks'
+const STORAGE_KEY    = 'stock-holdings'
+const WATCHLIST_KEY  = 'watchlist-stocks'
+const SORT_LOCK_KEY  = 'watchlist-sort-locked'
+
+function loadSortLocked() {
+  return localStorage.getItem(SORT_LOCK_KEY) !== 'false'
+}
 
 function loadHoldings() {
   try {
@@ -551,6 +566,27 @@ function WatchlistPage() {
   const [showForm,    setShowForm]    = useState(false)
   const [isFetching,  setIsFetching]  = useState(false)
   const [lastUpdated, setLastUpdated] = useState('--')
+  const [sortLocked,  setSortLocked]  = useState(loadSortLocked)
+
+  function toggleLock() {
+    const next = !sortLocked
+    setSortLocked(next)
+    localStorage.setItem(SORT_LOCK_KEY, String(next))
+  }
+
+  function handleDragEnd({ active, over }) {
+    if (!over || active.id === over.id) return
+    const oldIdx = list.findIndex(i => i.symbol === active.id)
+    const newIdx = list.findIndex(i => i.symbol === over.id)
+    const reordered = arrayMove(list, oldIdx, newIdx)
+    setList(reordered)
+    saveWatchlist(reordered)
+  }
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
+  )
 
   // 更新自選股清單 + 加權指數
   async function refreshWatchlist(currentList) {
@@ -632,14 +668,34 @@ function WatchlistPage() {
         <WatchlistRow item={taiex} fixed />
       </div>
 
-      {/* 自選清單標題 */}
+      {/* 自選清單標題 + 鎖定按鈕 + 新增按鈕 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
         <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
-        <button
-          onClick={() => setShowForm(true)}
-          className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
-          + 新增
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={toggleLock}
+            title={sortLocked ? '解鎖排序' : '鎖定排序'}
+            className={`p-1.5 rounded-md transition-colors
+              ${sortLocked ? 'text-gray-400 hover:text-gray-600' : 'text-blue-500 hover:text-blue-600'}`}
+          >
+            {sortLocked ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+              </svg>
+            )}
+          </button>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
+            + 新增
+          </button>
+        </div>
       </div>
 
       {/* 自選股列表 */}
@@ -648,12 +704,20 @@ function WatchlistPage() {
           <p className="text-gray-400 text-sm">尚無自選股</p>
           <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
         </div>
-      ) : (
+      ) : sortLocked ? (
         <div>
           {list.map(item => (
             <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
           ))}
         </div>
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={list.map(i => i.symbol)} strategy={verticalListSortingStrategy}>
+            {list.map(item => (
+              <SortableWatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+            ))}
+          </SortableContext>
+        </DndContext>
       )}
 
       {showForm && <WatchlistForm onSave={addItem} onCancel={() => setShowForm(false)} />}
@@ -661,7 +725,7 @@ function WatchlistPage() {
   )
 }
 
-function WatchlistRow({ item, fixed = false, onDelete }) {
+function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
   const [showActions, setShowActions] = useState(false)
 
   // 從 price / yesterdayClose 計算漲跌
@@ -680,6 +744,9 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
         className="flex items-center px-4 py-3"
         onClick={() => !fixed && setShowActions(prev => !prev)}
       >
+        {/* 拖拉把手（手動排序模式才會傳入） */}
+        {dragHandle}
+
         {/* 左：名稱 + 代號 */}
         <div className="flex-1 min-w-0">
           <p className="text-base font-medium text-gray-900 leading-tight">{item.name}</p>
@@ -722,6 +789,45 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Sortable Watchlist Row ───────────────────────────────────────────────────
+
+function GripIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+      <circle cx="4" cy="3"  r="1.2" /><circle cx="10" cy="3"  r="1.2" />
+      <circle cx="4" cy="7"  r="1.2" /><circle cx="10" cy="7"  r="1.2" />
+      <circle cx="4" cy="11" r="1.2" /><circle cx="10" cy="11" r="1.2" />
+    </svg>
+  )
+}
+
+function SortableWatchlistRow({ item, onDelete }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.symbol })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex:  isDragging ? 10 : 'auto',
+    position: 'relative',
+  }
+  const handle = (
+    <button
+      {...attributes}
+      {...listeners}
+      className="text-gray-300 touch-none cursor-grab active:cursor-grabbing p-1 -ml-1"
+      tabIndex={-1}
+      onClick={e => e.stopPropagation()}
+    >
+      <GripIcon />
+    </button>
+  )
+  return (
+    <div ref={setNodeRef} style={style}>
+      <WatchlistRow item={item} onDelete={onDelete} dragHandle={handle} />
     </div>
   )
 }
