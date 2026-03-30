@@ -147,9 +147,9 @@ function formatNumber(n) {
 }
 
 function twColor(value) {
-  if (value > 0) return 'text-red-400'
-  if (value < 0) return 'text-emerald-400'
-  return 'text-white'
+  if (value > 0) return 'text-red-500'
+  if (value < 0) return 'text-green-600'
+  return 'text-gray-500'
 }
 
 function PnLText({ value, className = '' }) {
@@ -167,15 +167,15 @@ function PercentText({ value, className = '' }) {
 function TopBar({ lastUpdated, isFetching, onRefresh }) {
   return (
     <div className="flex items-center justify-between px-4 pt-12 pb-4">
-      <h1 className="text-lg font-semibold text-white tracking-wide">我的持股</h1>
+      <h1 className="text-lg font-semibold text-gray-800 tracking-wide">我的持股</h1>
       <div className="flex items-center gap-3">
-        <span className="text-xs text-white">
+        <span className="text-xs text-gray-600">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
         </span>
         <button
           onClick={onRefresh}
           disabled={isFetching}
-          className="text-white transition-colors p-1 disabled:opacity-40"
+          className="text-gray-500 transition-colors p-1 disabled:opacity-40"
           title="更新股價"
         >
           <RefreshIcon spinning={isFetching} />
@@ -204,9 +204,9 @@ function SummaryCard({ summary }) {
   const todayColor = twColor(summary.todayPnL)
   const todaySign  = summary.todayPnL > 0 ? '+' : ''
   return (
-    <div className="mx-4 mb-4 bg-[#1a1a1a] rounded-2xl p-4 border border-[#2a2a2a]">
-      <div className="mb-4 pb-4 border-b border-[#2a2a2a]">
-        <p className="text-xs text-white mb-1 uppercase tracking-wider">今日損益</p>
+    <div className="mx-4 mb-4 bg-white rounded-xl p-4 border border-gray-300">
+      <div className="mb-4 pb-4 border-b border-gray-200">
+        <p className="text-xs text-gray-600 mb-1 uppercase tracking-wider">今日損益</p>
         <p className={`text-4xl font-bold ${todayColor}`}>
           {todaySign}{formatNumber(summary.todayPnL)}
         </p>
@@ -214,16 +214,16 @@ function SummaryCard({ summary }) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <p className="text-xs text-white mb-1">累積損益</p>
+          <p className="text-xs text-gray-600 mb-1">累積損益</p>
           <PnLText value={summary.totalPnL} className="text-lg font-semibold" />
           <div className="mt-0.5">
             <PercentText value={summary.totalPnLPercent} className="text-xs" />
           </div>
         </div>
         <div>
-          <p className="text-xs text-white mb-1">股票市值</p>
-          <p className="text-lg font-semibold text-white">{formatNumber(summary.marketValue)}</p>
-          <p className="text-xs text-white mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
+          <p className="text-xs text-gray-600 mb-1">股票市值</p>
+          <p className="text-lg font-semibold text-gray-900">{formatNumber(summary.marketValue)}</p>
+          <p className="text-xs text-gray-600 mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
         </div>
       </div>
     </div>
@@ -334,44 +334,53 @@ function HoldingForm({ initial, onSave, onCancel }) {
 function StockRow({ stock, onEdit, onDelete }) {
   const [showActions, setShowActions] = useState(false)
   return (
-    <div className="border-b border-[#1e1e1e] last:border-b-0">
-      <div className="px-4 py-4" onClick={() => setShowActions(prev => !prev)}>
-        <div className="flex items-start justify-between mb-2">
+    <div className="border-b border-gray-200 last:border-b-0">
+      <div className="px-4 pt-3.5 pb-3" onClick={() => setShowActions(prev => !prev)}>
+
+        {/* 第一行：名稱／代號  +  現價／漲跌幅 */}
+        <div className="flex items-start justify-between mb-3">
           <div>
-            <p className="text-sm font-medium text-white leading-tight">{stock.name}</p>
-            <p className="text-xs text-white mt-0.5">{stock.code}</p>
+            <p className="text-sm font-semibold text-gray-900 leading-tight">{stock.name}</p>
+            <p className="text-xs text-gray-600 mt-0.5">{stock.code}</p>
           </div>
           <div className="text-right">
-            <p className="text-sm font-semibold text-white">
+            <p className="text-base font-semibold text-gray-900 tabular-nums">
               {stock.price > 0 ? stock.price.toFixed(2) : '--'}
             </p>
-            <PercentText value={stock.changePercent} className="text-xs" />
+            <PercentText value={stock.changePercent} className="text-xs mt-0.5" />
           </div>
         </div>
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1">
-            <span className="text-sm text-white">今日</span>
-            <PnLText value={stock.todayPnL} className="text-sm font-medium" />
+
+        {/* 第二行：今日損益 / 累積損益 — 格狀對齊 */}
+        <div className="grid grid-cols-2 gap-x-4 bg-gray-100 rounded-xl px-3 py-2.5 mb-2.5">
+          <div>
+            <p className="text-[10px] text-gray-600 mb-0.5 uppercase tracking-wider">今日損益</p>
+            <PnLText value={stock.todayPnL} className="text-sm font-medium tabular-nums" />
           </div>
-          <div className="flex items-center gap-1">
-            <span className="text-sm text-white">累積</span>
-            <PnLText value={stock.totalPnL} className="text-sm font-medium" />
-            <PercentText value={stock.returnRate} className="text-xs" />
+          <div>
+            <p className="text-[10px] text-gray-600 mb-0.5 uppercase tracking-wider">累積損益</p>
+            <div className="flex items-baseline gap-1.5">
+              <PnLText value={stock.totalPnL} className="text-sm font-medium tabular-nums" />
+              <PercentText value={stock.returnRate} className="text-[10px]" />
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-white">{formatNumber(stock.shares)} 股</span>
-          <span className="text-sm text-white">·</span>
-          <span className="text-sm text-white">均價 {stock.avgCost.toFixed(2)}</span>
+
+        {/* 第三行：股數 + 均價（次要資訊） */}
+        <div className="flex items-center gap-2 text-xs text-gray-600">
+          <span>{formatNumber(stock.shares)} 股</span>
+          <span>·</span>
+          <span>均價 {stock.avgCost.toFixed(2)}</span>
         </div>
       </div>
+
       {showActions && (
-        <div className="flex border-t border-[#222]">
+        <div className="flex border-t border-gray-200">
           <button onClick={() => { setShowActions(false); onEdit() }}
-            className="flex-1 py-2.5 text-xs text-white hover:bg-[#222] transition-colors">編輯</button>
-          <div className="w-px bg-[#222]" />
+            className="flex-1 py-2.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors">編輯</button>
+          <div className="w-px bg-gray-200" />
           <button onClick={() => onDelete()}
-            className="flex-1 py-2.5 text-xs text-emerald-500 hover:text-red-400 hover:bg-[#222] transition-colors">刪除</button>
+            className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
       )}
     </div>
@@ -384,22 +393,22 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
   return (
     <div className="mx-4">
       <div className="flex items-center justify-between mb-3">
-        <p className="text-xs text-white uppercase tracking-wider">持股明細</p>
+        <p className="text-xs text-gray-600 uppercase tracking-wider">持股明細</p>
         <div className="flex items-center gap-3">
-          <p className="text-xs text-white">{stocks.length} 檔</p>
+          <p className="text-xs text-gray-600">{stocks.length} 檔</p>
           <button onClick={onAdd}
-            className="text-xs text-white border border-[#333] hover:border-[#555] rounded-lg px-2.5 py-1 transition-colors">
+            className="text-xs text-gray-700 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors">
             + 新增
           </button>
         </div>
       </div>
       {stocks.length === 0 ? (
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] p-8 text-center">
-          <p className="text-white text-sm">尚無持股</p>
-          <p className="text-white text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+        <div className="bg-white rounded-xl border border-gray-300 p-8 text-center">
+          <p className="text-gray-600 text-sm">尚無持股</p>
+          <p className="text-gray-500 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
         </div>
       ) : (
-        <div className="bg-[#1a1a1a] rounded-2xl border border-[#2a2a2a] overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-300 overflow-hidden">
           {stocks.map((stock, index) => (
             <StockRow key={stock.code} stock={stock}
               onEdit={() => onEdit(index)} onDelete={() => onDelete(index)} />
@@ -602,13 +611,13 @@ function WatchlistPage() {
       <div className="flex items-center justify-between px-4 pt-12 pb-3 border-b border-gray-100">
         <h1 className="text-lg font-semibold text-gray-900 tracking-wide">自選股</h1>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-600">
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
           </span>
           <button
             onClick={() => refreshWatchlist(list)}
             disabled={isFetching}
-            className="text-gray-400 p-1 disabled:opacity-40"
+            className="text-gray-500 p-1 disabled:opacity-40"
           >
             <RefreshIcon spinning={isFetching} />
           </button>
@@ -618,14 +627,14 @@ function WatchlistPage() {
       {/* 加權指數列 */}
       <div className="border-b border-gray-100">
         <div className="px-4 pt-2 pb-0.5">
-          <p className="text-[10px] text-gray-400 uppercase tracking-wider">大盤指數</p>
+          <p className="text-[10px] text-gray-600 uppercase tracking-wider">大盤指數</p>
         </div>
         <WatchlistRow item={taiex} fixed />
       </div>
 
       {/* 自選清單標題 */}
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-        <p className="text-[10px] text-gray-400 uppercase tracking-wider">自選清單 {list.length} 檔</p>
+        <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
         <button
           onClick={() => setShowForm(true)}
           className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
@@ -674,7 +683,7 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
         {/* 左：名稱 + 代號 */}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 leading-tight">{item.name}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{item.symbol}</p>
+          <p className="text-xs text-gray-600 mt-0.5">{item.symbol}</p>
         </div>
 
         {/* 股價 */}
@@ -745,26 +754,21 @@ function BottomNav({ activePage, onNavigate }) {
     },
   ]
 
-  const isLight = activePage === 'watchlist'
   return (
-    <div className={`fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t
-      ${isLight ? 'bg-white border-gray-200' : 'bg-[#111] border-[#222]'}`}>
+    <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t bg-white border-gray-200">
       <div className="flex">
         {tabs.map(tab => {
           const isActive = activePage === tab.id
-          const activeColor  = isLight ? 'text-gray-900' : 'text-white'
-          const inactiveColor = isLight ? 'text-gray-300' : 'text-white/40'
-          const dotColor     = isLight ? 'bg-gray-900' : 'bg-white'
           return (
             <button
               key={tab.id}
               onClick={() => onNavigate(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors
-                ${isActive ? activeColor : inactiveColor}`}
+                ${isActive ? 'text-gray-900' : 'text-gray-300'}`}
             >
               {tab.icon}
               <span className="text-[10px] font-medium tracking-wide">{tab.label}</span>
-              {isActive && <span className={`absolute bottom-1 w-1 h-1 rounded-full ${dotColor}`} />}
+              {isActive && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-gray-900" />}
             </button>
           )
         })}
@@ -830,7 +834,7 @@ export default function App() {
   }
 
   return (
-    <div className={`min-h-screen max-w-md mx-auto pb-24 ${activePage === 'portfolio' ? 'bg-[#0f0f0f]' : 'bg-white'}`}>
+    <div className="min-h-screen max-w-md mx-auto pb-24 bg-gray-50">
 
       {/* ── 庫存頁 ── */}
       {activePage === 'portfolio' && (
