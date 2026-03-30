@@ -207,23 +207,23 @@ function SummaryCard({ summary }) {
     <div className="mx-4 mb-4 bg-white rounded-xl p-4 border border-gray-300">
       <div className="mb-4 pb-4 border-b border-gray-200">
         <p className="text-xs text-gray-600 mb-1 uppercase tracking-wider">今日損益</p>
-        <p className={`text-4xl font-bold ${todayColor}`}>
+        <p className={`text-[42px] leading-none font-bold ${todayColor}`}>
           {todaySign}{formatNumber(summary.todayPnL)}
         </p>
-        <PercentText value={summary.todayPnLPercent} className="text-sm mt-1" />
+        <PercentText value={summary.todayPnLPercent} className="text-base mt-1" />
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <p className="text-xs text-gray-600 mb-1">累積損益</p>
-          <PnLText value={summary.totalPnL} className="text-lg font-semibold" />
+          <PnLText value={summary.totalPnL} className="text-xl font-semibold" />
           <div className="mt-0.5">
-            <PercentText value={summary.totalPnLPercent} className="text-xs" />
+            <PercentText value={summary.totalPnLPercent} className="text-sm" />
           </div>
         </div>
         <div>
           <p className="text-xs text-gray-600 mb-1">股票市值</p>
-          <p className="text-lg font-semibold text-gray-900">{formatNumber(summary.marketValue)}</p>
-          <p className="text-xs text-gray-600 mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
+          <p className="text-xl font-semibold text-gray-900">{formatNumber(summary.marketValue)}</p>
+          <p className="text-sm text-gray-600 mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
         </div>
       </div>
     </div>
@@ -340,34 +340,34 @@ function StockRow({ stock, onEdit, onDelete }) {
         {/* 第一行：名稱／代號  +  現價／漲跌幅 */}
         <div className="flex items-start justify-between mb-3">
           <div>
-            <p className="text-sm font-semibold text-gray-900 leading-tight">{stock.name}</p>
+            <p className="text-base font-semibold text-gray-900 leading-tight">{stock.name}</p>
             <p className="text-xs text-gray-600 mt-0.5">{stock.code}</p>
           </div>
           <div className="text-right">
-            <p className="text-base font-semibold text-gray-900 tabular-nums">
+            <p className="text-lg font-semibold text-gray-900 tabular-nums">
               {stock.price > 0 ? stock.price.toFixed(2) : '--'}
             </p>
-            <PercentText value={stock.changePercent} className="text-xs mt-0.5" />
+            <PercentText value={stock.changePercent} className="text-sm mt-0.5" />
           </div>
         </div>
 
         {/* 第二行：今日損益 / 累積損益 — 格狀對齊 */}
         <div className="grid grid-cols-2 gap-x-4 bg-gray-100 rounded-xl px-3 py-2.5 mb-2.5">
           <div>
-            <p className="text-[10px] text-gray-600 mb-0.5 uppercase tracking-wider">今日損益</p>
-            <PnLText value={stock.todayPnL} className="text-sm font-medium tabular-nums" />
+            <p className="text-xs text-gray-600 mb-0.5 uppercase tracking-wider">今日損益</p>
+            <PnLText value={stock.todayPnL} className="text-base font-medium tabular-nums" />
           </div>
           <div>
-            <p className="text-[10px] text-gray-600 mb-0.5 uppercase tracking-wider">累積損益</p>
+            <p className="text-xs text-gray-600 mb-0.5 uppercase tracking-wider">累積損益</p>
             <div className="flex items-baseline gap-1.5">
-              <PnLText value={stock.totalPnL} className="text-sm font-medium tabular-nums" />
-              <PercentText value={stock.returnRate} className="text-[10px]" />
+              <PnLText value={stock.totalPnL} className="text-base font-medium tabular-nums" />
+              <PercentText value={stock.returnRate} className="text-xs" />
             </div>
           </div>
         </div>
 
         {/* 第三行：股數 + 均價（次要資訊） */}
-        <div className="flex items-center gap-2 text-xs text-gray-600">
+        <div className="flex items-center gap-2 text-sm text-gray-600">
           <span>{formatNumber(stock.shares)} 股</span>
           <span>·</span>
           <span>均價 {stock.avgCost.toFixed(2)}</span>
@@ -682,13 +682,13 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
       >
         {/* 左：名稱 + 代號 */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 leading-tight">{item.name}</p>
+          <p className="text-base font-medium text-gray-900 leading-tight">{item.name}</p>
           <p className="text-xs text-gray-600 mt-0.5">{item.symbol}</p>
         </div>
 
         {/* 股價 */}
         <div className="w-24 text-right">
-          <p className={`text-base font-semibold ${changeColor}`}>
+          <p className={`text-lg font-semibold ${changeColor}`}>
             {hasPrice
               ? (fixed ? item.price.toLocaleString() : item.price.toFixed(2))
               : '--'}
@@ -697,10 +697,10 @@ function WatchlistRow({ item, fixed = false, onDelete }) {
 
         {/* 漲跌點 + 漲跌幅% */}
         <div className={`w-28 text-right ${changeColor}`}>
-          <p className="text-sm">
+          <p className="text-base">
             {hasPrice ? `${arrow}${Math.abs(changeAmt).toFixed(2)}` : '--'}
           </p>
-          <p className="text-xs mt-0.5">
+          <p className="text-sm mt-0.5">
             {hasPrice ? `${sign}${changePct.toFixed(2)}%` : '--'}
           </p>
         </div>
