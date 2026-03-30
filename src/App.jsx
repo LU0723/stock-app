@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
@@ -817,6 +817,14 @@ export default function App() {
   useEffect(() => {
     refreshPrices(loadHoldings())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const prevPageRef = useRef(activePage)
+  useEffect(() => {
+    if (prevPageRef.current !== 'portfolio' && activePage === 'portfolio') {
+      refreshPrices(loadHoldings())
+    }
+    prevPageRef.current = activePage
+  }, [activePage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAdd(newHolding) {
     const newHoldings = [...holdings, newHolding]
