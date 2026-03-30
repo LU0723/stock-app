@@ -179,7 +179,7 @@ function PercentText({ value, className = '' }) {
 
 // ─── Top Bar ──────────────────────────────────────────────────────────────────
 
-function TopBar({ lastUpdated, isFetching, onRefresh }) {
+function TopBar({ lastUpdated, isFetching, onRefresh, onBackup }) {
   return (
     <div className="flex items-center justify-between px-4 pt-12 pb-4">
       <h1 className="text-lg font-semibold text-gray-800 tracking-wide">我的持股</h1>
@@ -187,6 +187,17 @@ function TopBar({ lastUpdated, isFetching, onRefresh }) {
         <span className="text-xs text-gray-600">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
         </span>
+        <button
+          onClick={onBackup}
+          className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+          title="資料備份"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="21 8 21 21 3 21 3 8"/>
+            <rect x="1" y="3" width="22" height="5"/>
+            <line x1="10" y1="12" x2="14" y2="12"/>
+          </svg>
+        </button>
         <button
           onClick={onRefresh}
           disabled={isFetching}
@@ -837,6 +848,110 @@ function SortableWatchlistRow({ item, onDelete }) {
   )
 }
 
+// ─── 備份 / 還原 ─────────────────────────────────────────────────────────────
+
+function BackupModal({ onClose }) {
+  const fileInputRef = useRef(null)
+  const [status, setStatus] = useState('')
+  const isError = status.includes('錯誤')
+
+  function exportBackup() {
+    const today = new Date().toISOString().split('T')[0]
+    const backup = {
+      version: 1,
+      exportedAt: today,
+      holdings:   JSON.parse(localStorage.getItem('stock-holdings')      || '[]'),
+      watchlist:  JSON.parse(localStorage.getItem('watchlist-stocks')     || '[]'),
+      sortLocked: localStorage.getItem('watchlist-sort-locked') ?? 'true',
+    }
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = `stock-app-backup-${today}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    setStatus('備份已下載')
+  }
+
+  function handleFile(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target.result)
+        if (!Array.isArray(data.holdings) || !Array.isArray(data.watchlist)) {
+          setStatus('備份檔格式錯誤')
+          return
+        }
+        localStorage.setItem('stock-holdings',      JSON.stringify(data.holdings))
+        localStorage.setItem('watchlist-stocks',     JSON.stringify(data.watchlist))
+        if (data.sortLocked !== undefined) {
+          localStorage.setItem('watchlist-sort-locked', String(data.sortLocked))
+        }
+        setStatus('資料已恢復，即將重新載入...')
+        setTimeout(() => window.location.reload(), 900)
+      } catch {
+        setStatus('備份檔格式錯誤')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = ''   // 允許重複選同一個檔
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end" onClick={onClose}>
+      <div
+        className="w-full max-w-md mx-auto bg-white rounded-t-2xl border-t border-gray-200 px-5 pt-5 pb-8"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-gray-800">資料備份</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+
+        {status && (
+          <p className={`text-sm mb-4 px-3 py-2 rounded-xl
+            ${isError ? 'text-red-600 bg-red-50' : 'text-green-700 bg-green-50'}`}>
+            {status}
+          </p>
+        )}
+
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={exportBackup}
+            className="w-full py-3 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 transition-colors"
+          >
+            匯出備份
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            className="hidden"
+            onChange={handleFile}
+          />
+          <button
+            onClick={() => fileInputRef.current.click()}
+            className="w-full py-3 rounded-xl border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            匯入備份
+          </button>
+        </div>
+
+        <p className="text-xs text-gray-400 mt-4 text-center">
+          備份包含持股、自選股資料
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ─── 底部導覽列 ───────────────────────────────────────────────────────────────
 
 function BottomNav({ activePage, onNavigate }) {
@@ -896,6 +1011,7 @@ export default function App() {
   const [isFetching,  setIsFetching]  = useState(false)
   const [fetchError,  setFetchError]  = useState(null)
   const [lastUpdated, setLastUpdated] = useState('--')
+  const [showBackup,  setShowBackup]  = useState(false)
   const [activePage,  setActivePage]  = useState(
     () => localStorage.getItem('activeTab') ?? 'portfolio'
   )
@@ -964,6 +1080,7 @@ export default function App() {
             lastUpdated={lastUpdated}
             isFetching={isFetching}
             onRefresh={() => refreshPrices(holdings)}
+            onBackup={() => setShowBackup(true)}
           />
           {fetchError && (
             <p className="mx-4 mb-3 text-xs text-yellow-600 bg-yellow-600/10 rounded-xl px-3 py-2">
@@ -990,6 +1107,9 @@ export default function App() {
       {typeof modal === 'number' && (
         <HoldingForm initial={holdings[modal]} onSave={handleEdit} onCancel={() => setModal(null)} />
       )}
+
+      {/* ── 備份 Modal ── */}
+      {showBackup && <BackupModal onClose={() => setShowBackup(false)} />}
 
       {/* ── 底部導覽 ── */}
       <BottomNav activePage={activePage} onNavigate={page => {
