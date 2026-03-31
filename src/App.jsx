@@ -392,11 +392,13 @@ function StockRow({ stock, onEdit, onDelete }) {
           </div>
         </div>
 
-        {/* 第三行：股數 + 均價（次要資訊） */}
+        {/* 第三行：股數 + 均價 + 成本（次要資訊） */}
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <span>{formatNumber(stock.shares)} 股</span>
           <span>·</span>
           <span>均價 {stock.avgCost.toFixed(2)}</span>
+          <span>·</span>
+          <span>成本 {formatNumber(Math.round(stock.shares * stock.avgCost))}</span>
         </div>
       </div>
 
@@ -455,14 +457,10 @@ const TAIEX_INIT = {
 
 // 預設假資料（localStorage 無資料時使用，price=0 → 載入後自動更新）
 const DEFAULT_WATCHLIST = [
-  { symbol: '0050', name: '元大台灣50', price: 0, yesterdayClose: 0 },
-  { symbol: '2408', name: '南亞科',     price: 0, yesterdayClose: 0 },
-  { symbol: '8440', name: '綠電',       price: 0, yesterdayClose: 0 },
-  { symbol: '6535', name: '順藥',       price: 0, yesterdayClose: 0 },
-  { symbol: '2031', name: '新光鋼',     price: 0, yesterdayClose: 0 },
-  { symbol: '2331', name: '精英',       price: 0, yesterdayClose: 0 },
-  { symbol: '2498', name: '宏達電',     price: 0, yesterdayClose: 0 },
-  { symbol: '2474', name: '可成',       price: 0, yesterdayClose: 0 },
+  { symbol: '0050',   name: '元大台灣50',       price: 0, yesterdayClose: 0 },
+  { symbol: '2330',   name: '台積電',           price: 0, yesterdayClose: 0 },
+  { symbol: '00631L', name: '元大台灣50正2',    price: 0, yesterdayClose: 0 },
+  { symbol: '00675L', name: '富邦臺灣加權正2',  price: 0, yesterdayClose: 0 },
 ]
 
 // ─── 自選股新增表單 ───────────────────────────────────────────────────────────
