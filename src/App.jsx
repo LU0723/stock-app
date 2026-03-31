@@ -26,6 +26,7 @@ const CASH_KEY            = 'exposure-cash'
 const INDEX_HIGH_KEY      = 'twii-year-high'
 const TARGET_EXPOSURE_KEY = 'exposure-target-lev'
 const ADVANCED_MODE_KEY   = 'advanced-mode'
+const YEAR_HIGH_CACHE_KEY = 'twii-year-high-cache'  // { date, value }，每日快取
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -76,6 +77,20 @@ function loadTargetExposure() {
   const saved = localStorage.getItem(TARGET_EXPOSURE_KEY)
   return saved !== null ? saved : null   // null = 尚未設定
 }
+function loadYearHighCache() {
+  try {
+    const saved = localStorage.getItem(YEAR_HIGH_CACHE_KEY)
+    if (!saved) return null
+    const { date, value } = JSON.parse(saved)
+    const today = new Date().toISOString().split('T')[0]
+    if (date === today && value > 0) return value
+  } catch {}
+  return null
+}
+function saveYearHighCache(value) {
+  const today = new Date().toISOString().split('T')[0]
+  localStorage.setItem(YEAR_HIGH_CACHE_KEY, JSON.stringify({ date: today, value }))
+}
 function saveTargetExposure(v) {
   localStorage.setItem(TARGET_EXPOSURE_KEY, String(v))
 }
@@ -124,6 +139,34 @@ async function fetchStockMap(symbols) {
     }
   }
   return map
+}
+
+// 台灣加權指數近一年高點：抓 TWSE exchangeReport/FMTQIK 歷史月資料
+// 直接前端 fetch（www.twse.com.tw 支援 CORS），不需 proxy
+async function fetchYearHigh() {
+  const today = new Date()
+  let maxPrice = 0
+
+  for (let i = 0; i < 12; i++) {
+    const d     = new Date(today.getFullYear(), today.getMonth() - i, 1)
+    const year  = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const dateStr = `${year}${month}01`
+    try {
+      const url = `https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date=${dateStr}`
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json()
+      if (data.stat !== 'OK' || !Array.isArray(data.data)) continue
+      for (const row of data.data) {
+        const val = parseFloat(String(row[1]).replace(/,/g, ''))
+        if (!isNaN(val) && val > maxPrice) maxPrice = val
+      }
+    } catch { /* 單月失敗跳過，繼續其他月份 */ }
+  }
+
+  if (maxPrice === 0) throw new Error('無法取得近一年高點資料')
+  return maxPrice
 }
 
 // 台灣加權指數（代碼 t00）
@@ -1036,22 +1079,44 @@ function ExposurePage({ holdings }) {
   const [twiiError, setTwiiError] = useState(false)
 
   useEffect(() => {
-    fetchTaiwanIndex()
-      .then(price => {
+    async function init() {
+      // 1. 抓目前指數
+      let price = null
+      try {
+        price = await fetchTaiwanIndex()
         setTwii(price)
-        const prevHigh = loadIndexHigh()
-        const newHigh  = (prevHigh === null || price > prevHigh) ? price : prevHigh
-        if (prevHigh === null || price > prevHigh) saveIndexHigh(price)
+      } catch {
+        setTwiiError(true)
+      }
 
-        // 第一次進入（尚未儲存目標曝險）→ 以 App 建議值作為預設
-        if (loadTargetExposure() === null && newHigh > 0) {
-          const dd     = ((price - newHigh) / newHigh) * 100
-          const sugLev = calcSuggestedLeverage(dd)
-          setTargetInput(String(sugLev))
-          saveTargetExposure(sugLev)
+      // 2. 近一年高點：優先用今日快取，否則抓 12 個月歷史
+      let yh = loadYearHighCache()
+      if (yh === null) {
+        try {
+          yh = await fetchYearHigh()
+        } catch {
+          yh = loadIndexHigh()   // fallback：退回本機記錄
         }
-      })
-      .catch(() => setTwiiError(true))
+      }
+
+      // 3. 若今日指數超過歷史高點，更新（例如大漲創高）
+      if (price !== null && yh !== null && price > yh) yh = price
+
+      // 4. 寫入 localStorage
+      if (yh !== null) {
+        saveIndexHigh(yh)
+        saveYearHighCache(yh)
+      }
+
+      // 5. 第一次進入：以當下建議曝險作為目標預設
+      if (loadTargetExposure() === null && price !== null && yh !== null && yh > 0) {
+        const dd     = ((price - yh) / yh) * 100
+        const sugLev = calcSuggestedLeverage(dd)
+        setTargetInput(String(sugLev))
+        saveTargetExposure(sugLev)
+      }
+    }
+    init()
   }, [])
 
   const cash = parseFloat(cashInput) || 0
