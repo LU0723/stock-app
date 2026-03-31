@@ -25,6 +25,7 @@ const SORT_LOCK_KEY    = 'watchlist-sort-locked'
 const CASH_KEY            = 'exposure-cash'
 const INDEX_HIGH_KEY      = 'twii-year-high'
 const TARGET_EXPOSURE_KEY = 'exposure-target-lev'
+const ADVANCED_MODE_KEY   = 'advanced-mode'
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -223,10 +224,23 @@ function PercentText({ value, className = '' }) {
 
 // ─── Top Bar ──────────────────────────────────────────────────────────────────
 
-function TopBar({ lastUpdated, isFetching, onRefresh, onBackup }) {
+function TopBar({ lastUpdated, isFetching, onRefresh, onBackup, onLongPress }) {
+  const timerRef = useRef(null)
+
+  function startPress() {
+    timerRef.current = setTimeout(() => { onLongPress() }, 2000)
+  }
+  function cancelPress() {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
+  }
+
   return (
     <div className="flex items-center justify-between px-4 pt-12 pb-4">
-      <h1 className="text-lg font-semibold text-gray-800 tracking-wide">我的持股</h1>
+      <h1
+        className="text-lg font-semibold text-gray-800 tracking-wide select-none"
+        onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
+        onTouchStart={startPress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
+      >我的持股</h1>
       <div className="flex items-center gap-3">
         <span className="text-xs text-gray-600">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
@@ -1216,8 +1230,8 @@ function ExposurePage({ holdings }) {
 
 // ─── 底部導覽列 ───────────────────────────────────────────────────────────────
 
-function BottomNav({ activePage, onNavigate }) {
-  const tabs = [
+function BottomNav({ activePage, onNavigate, advancedMode }) {
+  const allTabs = [
     {
       id: 'portfolio',
       label: '庫存',
@@ -1253,6 +1267,7 @@ function BottomNav({ activePage, onNavigate }) {
       ),
     },
   ]
+  const tabs = advancedMode ? allTabs : allTabs.filter(t => t.id !== 'exposure')
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t bg-white border-gray-200">
@@ -1285,10 +1300,16 @@ export default function App() {
   const [isFetching,  setIsFetching]  = useState(false)
   const [fetchError,  setFetchError]  = useState(null)
   const [lastUpdated, setLastUpdated] = useState('--')
-  const [showBackup,  setShowBackup]  = useState(false)
-  const [activePage,  setActivePage]  = useState(
-    () => localStorage.getItem('activeTab') ?? 'portfolio'
+  const [showBackup,    setShowBackup]    = useState(false)
+  const [advancedMode,  setAdvancedMode]  = useState(
+    () => localStorage.getItem(ADVANCED_MODE_KEY) === 'true'
   )
+  const [activePage,    setActivePage]    = useState(() => {
+    const saved = localStorage.getItem('activeTab') ?? 'portfolio'
+    const isAdv = localStorage.getItem(ADVANCED_MODE_KEY) === 'true'
+    return (saved === 'exposure' && !isAdv) ? 'portfolio' : saved
+  })
+  const [toast, setToast] = useState('')
 
   const stocks  = holdings.map(calcStock)
   const summary = calcSummary(stocks, holdings)
@@ -1344,6 +1365,28 @@ export default function App() {
     updateHoldings(holdings.filter((_, i) => i !== index))
   }
 
+  function showToast(msg) {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2000)
+  }
+
+  function handleTitleLongPress() {
+    const next = !advancedMode
+    setAdvancedMode(next)
+    localStorage.setItem(ADVANCED_MODE_KEY, String(next))
+    if (next) {
+      setActivePage('exposure')
+      localStorage.setItem('activeTab', 'exposure')
+      showToast('已開啟進階模式')
+    } else {
+      if (activePage === 'exposure') {
+        setActivePage('portfolio')
+        localStorage.setItem('activeTab', 'portfolio')
+      }
+      showToast('已關閉進階模式')
+    }
+  }
+
   return (
     <div className="min-h-screen max-w-md mx-auto pb-24 bg-gray-50">
 
@@ -1355,6 +1398,7 @@ export default function App() {
             isFetching={isFetching}
             onRefresh={() => refreshPrices(holdings)}
             onBackup={() => setShowBackup(true)}
+            onLongPress={handleTitleLongPress}
           />
           {fetchError && (
             <p className="mx-4 mb-3 text-xs text-yellow-600 bg-yellow-600/10 rounded-xl px-3 py-2">
@@ -1389,10 +1433,23 @@ export default function App() {
       {showBackup && <BackupModal onClose={() => setShowBackup(false)} />}
 
       {/* ── 底部導覽 ── */}
-      <BottomNav activePage={activePage} onNavigate={page => {
-        localStorage.setItem('activeTab', page)
-        setActivePage(page)
-      }} />
+      <BottomNav
+        activePage={activePage}
+        advancedMode={advancedMode}
+        onNavigate={page => {
+          localStorage.setItem('activeTab', page)
+          setActivePage(page)
+        }}
+      />
+
+      {/* ── Toast 提示 ── */}
+      {toast && (
+        <div className="fixed top-16 inset-x-0 z-50 flex justify-center pointer-events-none">
+          <div className="bg-gray-800/90 text-white text-sm px-5 py-2 rounded-full shadow-lg">
+            {toast}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
