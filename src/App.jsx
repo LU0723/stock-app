@@ -22,8 +22,9 @@ const DEFAULT_HOLDINGS = [
 const STORAGE_KEY      = 'stock-holdings'
 const WATCHLIST_KEY    = 'watchlist-stocks'
 const SORT_LOCK_KEY    = 'watchlist-sort-locked'
-const CASH_KEY         = 'exposure-cash'
-const INDEX_HIGH_KEY   = 'twii-year-high'
+const CASH_KEY            = 'exposure-cash'
+const INDEX_HIGH_KEY      = 'twii-year-high'
+const TARGET_EXPOSURE_KEY = 'exposure-target-lev'
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -69,6 +70,13 @@ function loadIndexHigh() {
 }
 function saveIndexHigh(v) {
   localStorage.setItem(INDEX_HIGH_KEY, String(v))
+}
+function loadTargetExposure() {
+  const saved = localStorage.getItem(TARGET_EXPOSURE_KEY)
+  return saved !== null ? saved : null   // null = 尚未設定
+}
+function saveTargetExposure(v) {
+  localStorage.setItem(TARGET_EXPOSURE_KEY, String(v))
 }
 
 // ─── 共用股價 API ─────────────────────────────────────────────────────────────
@@ -998,23 +1006,17 @@ function calcSuggestedLeverage(drawdown) {
   return 100                      // <= -25%
 }
 
-// 回傳下一加碼門檻與距離，到頂則回傳 null
-function calcNextAddPoint(drawdown) {
-  const thresholds = [-10, -15, -20, -25]
-  for (const t of thresholds) {
-    if (drawdown > t) {
-      return { threshold: t, distance: Math.abs(t - drawdown) }
-    }
-  }
-  return null // 已達 -25% 以下
-}
 
 // ─── 曝險計算頁 ───────────────────────────────────────────────────────────────
 
 function ExposurePage({ holdings }) {
-  const [cashInput, setCashInput] = useState(() => {
+  const [cashInput,   setCashInput]   = useState(() => {
     const v = loadCash()
     return v > 0 ? String(v) : ''
+  })
+  const [targetInput, setTargetInput] = useState(() => {
+    const saved = loadTargetExposure()
+    return saved !== null ? saved : ''   // '' = 尚未初始化，等 TWII 載入後設定
   })
   const [twii,      setTwii]      = useState(null)
   const [twiiError, setTwiiError] = useState(false)
@@ -1024,7 +1026,16 @@ function ExposurePage({ holdings }) {
       .then(price => {
         setTwii(price)
         const prevHigh = loadIndexHigh()
+        const newHigh  = (prevHigh === null || price > prevHigh) ? price : prevHigh
         if (prevHigh === null || price > prevHigh) saveIndexHigh(price)
+
+        // 第一次進入（尚未儲存目標曝險）→ 以 App 建議值作為預設
+        if (loadTargetExposure() === null && newHigh > 0) {
+          const dd     = ((price - newHigh) / newHigh) * 100
+          const sugLev = calcSuggestedLeverage(dd)
+          setTargetInput(String(sugLev))
+          saveTargetExposure(sugLev)
+        }
       })
       .catch(() => setTwiiError(true))
   }, [])
@@ -1032,8 +1043,15 @@ function ExposurePage({ holdings }) {
   const cash = parseFloat(cashInput) || 0
 
   function handleCashBlur() {
-    const v = parseFloat(cashInput) || 0
-    saveCash(v)
+    saveCash(parseFloat(cashInput) || 0)
+  }
+
+  function handleTargetBlur() {
+    let v = parseFloat(targetInput)
+    if (isNaN(v)) v = 70
+    v = Math.max(0, Math.min(100, Math.round(v)))
+    setTargetInput(String(v))
+    saveTargetExposure(v)
   }
 
   const leveragedValue   = holdings
@@ -1044,10 +1062,12 @@ function ExposurePage({ holdings }) {
   const leveragedPct     = totalAssets > 0 ? (leveragedValue / totalAssets) * 100 : 0
   const cashPct          = totalAssets > 0 ? (cash / totalAssets) * 100 : 0
 
-  const yearHigh = loadIndexHigh()
-  const drawdown = (twii !== null && yearHigh !== null && yearHigh > 0)
+  const yearHigh  = loadIndexHigh()
+  const drawdown  = (twii !== null && yearHigh !== null && yearHigh > 0)
     ? ((twii - yearHigh) / yearHigh) * 100
     : null
+  const sugLev    = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
+  const targetLev = Math.max(0, Math.min(100, parseFloat(targetInput) || 0))
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -1115,98 +1135,78 @@ function ExposurePage({ holdings }) {
         </div>
       </div>
 
-      {/* D. 建議曝險 */}
-      {(() => {
-        const sugLev  = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
-        const sugCash = sugLev !== null ? 100 - sugLev : null
-        return (
-          <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">建議曝險</p>
-            <div className="space-y-2.5">
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">正二</span>
-                <span className="text-base font-semibold text-gray-900">
-                  {sugLev !== null ? `${sugLev}%` : '--'}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">現金</span>
-                <span className="text-base font-semibold text-gray-900">
-                  {sugCash !== null ? `${sugCash}%` : '--'}
-                </span>
-              </div>
-            </div>
+      {/* C. 回檔 / 建議曝險（App 客觀建議） */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">回檔 / 建議曝險</p>
+        <div className="space-y-2.5">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">從高點回落</span>
+            <span className={`text-sm font-medium ${drawdown !== null && drawdown < 0 ? 'text-green-600' : 'text-gray-500'}`}>
+              {drawdown !== null ? `${drawdown.toFixed(2)}%` : '--'}
+            </span>
           </div>
-        )
-      })()}
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">App 建議正二曝險</span>
+            <span className="text-base font-semibold text-gray-900">
+              {sugLev !== null ? `${sugLev}%` : '--'}
+            </span>
+          </div>
+        </div>
+      </div>
 
-      {/* E. 再平衡建議 */}
+      {/* D. 目標曝險（使用者主觀設定） */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">目標曝險</p>
+        <p className="text-xs text-gray-400 mb-3">你自己決定的正二曝險目標</p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            value={targetInput}
+            onChange={e => setTargetInput(e.target.value)}
+            onBlur={handleTargetBlur}
+            placeholder="70"
+            min="0"
+            max="100"
+            className="w-24 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 text-center focus:outline-none focus:border-gray-400"
+          />
+          <span className="text-sm text-gray-600">% 正二</span>
+        </div>
+      </div>
+
+      {/* E. 再平衡建議（依據目標曝險計算） */}
       {(() => {
-        const sugLev = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
-        if (sugLev === null) {
+        if (targetInput === '') {
           return (
-            <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">再平衡建議</p>
               <p className="text-sm text-gray-500">暫時無法計算</p>
             </div>
           )
         }
-        const diff          = sugLev - leveragedPct                        // 百分比差距
-        const targetLevAmt  = totalAssets * (sugLev / 100)
-        const diffAmt       = Math.round(Math.abs(targetLevAmt - leveragedValue))
-        const isSmall       = Math.abs(diff) < 3.0
+        const diff         = targetLev - leveragedPct          // 百分比差距
+        const targetLevAmt = totalAssets * (targetLev / 100)
+        const diffAmt      = Math.round(Math.abs(targetLevAmt - leveragedValue))
+        const isSmall      = Math.abs(diff) < 3.0
 
         let label, labelColor, amtLine
         if (isSmall) {
-          label      = '目前曝險已符合'
+          label      = '目前曝險已接近目標'
           labelColor = 'text-gray-700'
           amtLine    = '不需調整部位'
         } else if (diff > 0) {
-          label      = `建議加碼：+${diff.toFixed(1)}% 正二`
+          label      = `距目標還需加碼 +${diff.toFixed(1)}% 正二`
           labelColor = 'text-red-500'
           amtLine    = `建議增加正二部位：NT$ ${formatNumber(diffAmt)}`
         } else {
-          label      = '目前正二曝險高於建議'
+          label      = `正二曝險高於目標 ${Math.abs(diff).toFixed(1)}%`
           labelColor = 'text-green-600'
           amtLine    = `建議減少正二部位：NT$ ${formatNumber(diffAmt)}`
         }
         return (
-          <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">再平衡建議</p>
             <p className={`text-sm font-semibold ${labelColor}`}>{label}</p>
             <p className="text-sm text-gray-500 mt-1.5">{amtLine}</p>
-          </div>
-        )
-      })()}
-
-      {/* F. 下一加碼點 */}
-      {(() => {
-        if (drawdown === null) {
-          return (
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一加碼點</p>
-              <p className="text-sm text-gray-500">暫時無法計算</p>
-            </div>
-          )
-        }
-        const next = calcNextAddPoint(drawdown)
-        return (
-          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一加碼點</p>
-            {next === null ? (
-              <p className="text-sm font-semibold text-gray-900">已達最高加碼區間</p>
-            ) : (
-              <div className="space-y-2.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">下一加碼</span>
-                  <span className="text-sm font-semibold text-gray-900">回檔 {next.threshold}%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">距離</span>
-                  <span className="text-sm font-medium text-gray-700">再跌 {next.distance.toFixed(2)}%</span>
-                </div>
-              </div>
-            )}
           </div>
         )
       })()}
