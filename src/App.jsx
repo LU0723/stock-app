@@ -19,9 +19,14 @@ const DEFAULT_HOLDINGS = [
 
 // ─── localStorage ────────────────────────────────────────────────────────────
 
-const STORAGE_KEY    = 'stock-holdings'
-const WATCHLIST_KEY  = 'watchlist-stocks'
-const SORT_LOCK_KEY  = 'watchlist-sort-locked'
+const STORAGE_KEY      = 'stock-holdings'
+const WATCHLIST_KEY    = 'watchlist-stocks'
+const SORT_LOCK_KEY    = 'watchlist-sort-locked'
+const CASH_KEY         = 'exposure-cash'
+const INDEX_HIGH_KEY   = 'twii-year-high'
+
+// 正二曝險標的，未來可在此擴充
+const LEVERAGED_SYMBOLS = ['00631L', '00675L']
 
 function loadSortLocked() {
   return localStorage.getItem(SORT_LOCK_KEY) !== 'false'
@@ -49,6 +54,21 @@ function loadWatchlist() {
 
 function saveWatchlist(list) {
   localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list))
+}
+
+function loadCash() {
+  const v = parseFloat(localStorage.getItem(CASH_KEY))
+  return isNaN(v) ? 0 : v
+}
+function saveCash(v) {
+  localStorage.setItem(CASH_KEY, String(v))
+}
+function loadIndexHigh() {
+  const v = parseFloat(localStorage.getItem(INDEX_HIGH_KEY))
+  return isNaN(v) ? null : v
+}
+function saveIndexHigh(v) {
+  localStorage.setItem(INDEX_HIGH_KEY, String(v))
 }
 
 // ─── 共用股價 API ─────────────────────────────────────────────────────────────
@@ -95,6 +115,22 @@ async function fetchStockMap(symbols) {
     }
   }
   return map
+}
+
+// 台灣加權指數（代碼 t00）
+async function fetchTaiwanIndex() {
+  const url = '/api/stock?ex_ch=tse_t00.tw'
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`API 錯誤：${res.status}`)
+  const data  = await res.json()
+  const items = data.msgArray ?? []
+  const item  = items[0]
+  if (!item) throw new Error('無加權指數資料')
+  const z  = item.z !== '-' ? parseFloat(item.z) : null
+  const y  = parseFloat(item.y)
+  const price = z !== null && !isNaN(z) ? z : (!isNaN(y) ? y : null)
+  if (price === null) throw new Error('加權指數無法解析')
+  return price
 }
 
 // 庫存頁專用：套用價格到 holdings 陣列
@@ -950,6 +986,124 @@ function BackupModal({ onClose }) {
   )
 }
 
+// ─── 曝險計算頁 ───────────────────────────────────────────────────────────────
+
+function ExposurePage({ holdings }) {
+  const [cashInput, setCashInput] = useState(() => {
+    const v = loadCash()
+    return v > 0 ? String(v) : ''
+  })
+  const [twii,      setTwii]      = useState(null)
+  const [twiiError, setTwiiError] = useState(false)
+
+  useEffect(() => {
+    fetchTaiwanIndex()
+      .then(price => {
+        setTwii(price)
+        const prevHigh = loadIndexHigh()
+        if (prevHigh === null || price > prevHigh) saveIndexHigh(price)
+      })
+      .catch(() => setTwiiError(true))
+  }, [])
+
+  const cash = parseFloat(cashInput) || 0
+
+  function handleCashBlur() {
+    const v = parseFloat(cashInput) || 0
+    saveCash(v)
+  }
+
+  const leveragedValue   = holdings
+    .filter(h => LEVERAGED_SYMBOLS.includes(h.symbol))
+    .reduce((sum, h) => sum + h.price * h.shares, 0)
+  const totalMarketValue = holdings.reduce((sum, h) => sum + h.price * h.shares, 0)
+  const totalAssets      = totalMarketValue + cash
+  const leveragedPct     = totalAssets > 0 ? (leveragedValue / totalAssets) * 100 : 0
+  const cashPct          = totalAssets > 0 ? (cash / totalAssets) * 100 : 0
+
+  const yearHigh = loadIndexHigh()
+  const drawdown = (twii !== null && yearHigh !== null && yearHigh > 0)
+    ? ((twii - yearHigh) / yearHigh) * 100
+    : null
+
+  return (
+    <div className="px-4 pt-12 pb-6">
+      <h1 className="text-lg font-semibold text-gray-800 tracking-wide mb-5">曝險計算</h1>
+
+      {/* A. 市場狀態 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">市場狀態</p>
+        <div className="space-y-2.5">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">台股近一年高點</span>
+            <span className="text-sm font-medium text-gray-900">
+              {yearHigh !== null ? formatNumber(Math.round(yearHigh)) : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">目前台股</span>
+            <span className="text-sm font-medium text-gray-900">
+              {twiiError ? '無法取得' : twii !== null ? formatNumber(Math.round(twii)) : '載入中...'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">回檔幅度</span>
+            <span className={`text-sm font-medium ${drawdown !== null && drawdown < 0 ? 'text-green-600' : 'text-gray-500'}`}>
+              {drawdown !== null ? `${drawdown.toFixed(2)}%` : '--'}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* B. 我的資產 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">我的資產</p>
+        <div className="mb-3">
+          <label className="text-sm text-gray-600 block mb-1.5">現金（手動輸入）</label>
+          <input
+            type="number"
+            value={cashInput}
+            onChange={e => setCashInput(e.target.value)}
+            onBlur={handleCashBlur}
+            placeholder="0"
+            min="0"
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
+          />
+        </div>
+        <div className="space-y-2.5 pt-3 border-t border-gray-100">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">現金</span>
+            <span className="text-sm font-medium text-gray-900">{formatNumber(Math.round(cash))}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">全部持股市值</span>
+            <span className="text-sm font-medium text-gray-900">{formatNumber(Math.round(totalMarketValue))}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">總資產</span>
+            <span className="text-base font-semibold text-gray-900">{formatNumber(Math.round(totalAssets))}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* C. 目前曝險 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">目前曝險</p>
+        <div className="space-y-2.5">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">正二</span>
+            <span className="text-base font-semibold text-gray-900">{leveragedPct.toFixed(1)}%</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">現金</span>
+            <span className="text-base font-semibold text-gray-900">{cashPct.toFixed(1)}%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── 底部導覽列 ───────────────────────────────────────────────────────────────
 
 function BottomNav({ activePage, onNavigate }) {
@@ -973,6 +1127,18 @@ function BottomNav({ activePage, onNavigate }) {
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      ),
+    },
+    {
+      id: 'exposure',
+      label: '曝險',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6"  y1="20" x2="6"  y2="14" />
         </svg>
       ),
     },
@@ -1097,6 +1263,9 @@ export default function App() {
 
       {/* ── 自選股頁 ── */}
       {activePage === 'watchlist' && <WatchlistPage />}
+
+      {/* ── 曝險計算頁 ── */}
+      {activePage === 'exposure' && <ExposurePage holdings={holdings} />}
 
       {/* ── 新增 / 編輯 Modal ── */}
       {modal === 'add' && (
