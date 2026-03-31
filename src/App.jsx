@@ -157,10 +157,26 @@ async function fetchYearHigh() {
       const res = await fetch(url)
       if (!res.ok) continue
       const data = await res.json()
+
+      // Task 1：第一個月印出原始資料，確認欄位順序
+      if (i === 0) {
+        console.log('[fetchYearHigh] fields:', data.fields)
+        console.log('[fetchYearHigh] data[0]:', data.data?.[0])
+      }
+
       if (data.stat !== 'OK' || !Array.isArray(data.data)) continue
+
+      // Task 2：動態找「發行量加權股價指數」欄位，避免欄位順序變動
+      const fields = Array.isArray(data.fields) ? data.fields : []
+      const colIdx = fields.findIndex(f => String(f).includes('加權股價指數'))
+      const idx    = colIdx >= 0 ? colIdx : 1   // fallback 到 column 1
+
       for (const row of data.data) {
-        const val = parseFloat(String(row[1]).replace(/,/g, ''))
-        if (!isNaN(val) && val > maxPrice) maxPrice = val
+        // Task 3：去除千分位逗號再 parseFloat
+        const val = parseFloat(String(row[idx] ?? '').replace(/,/g, ''))
+
+        // Task 4：安全檢查，指數不可能超過 1,000,000
+        if (!isNaN(val) && val > maxPrice && val < 1_000_000) maxPrice = val
       }
     } catch { /* 單月失敗跳過，繼續其他月份 */ }
   }
