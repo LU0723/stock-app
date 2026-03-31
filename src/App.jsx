@@ -986,6 +986,29 @@ function BackupModal({ onClose }) {
   )
 }
 
+// ─── 曝險模型 ─────────────────────────────────────────────────────────────────
+// drawdown 為負數（例：-11.8 代表回檔 11.8%）
+// 回傳建議正二持倉 %
+
+function calcSuggestedLeverage(drawdown) {
+  if (drawdown > -10) return 70   // 0% ~ -10%
+  if (drawdown > -15) return 75   // -10% ~ -15%
+  if (drawdown > -20) return 80   // -15% ~ -20%
+  if (drawdown > -25) return 90   // -20% ~ -25%
+  return 100                      // <= -25%
+}
+
+// 回傳下一加碼門檻與距離，到頂則回傳 null
+function calcNextAddPoint(drawdown) {
+  const thresholds = [-10, -15, -20, -25]
+  for (const t of thresholds) {
+    if (drawdown > t) {
+      return { threshold: t, distance: Math.abs(t - drawdown) }
+    }
+  }
+  return null // 已達 -25% 以下
+}
+
 // ─── 曝險計算頁 ───────────────────────────────────────────────────────────────
 
 function ExposurePage({ holdings }) {
@@ -1087,7 +1110,7 @@ function ExposurePage({ holdings }) {
       </div>
 
       {/* C. 目前曝險 */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
         <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">目前曝險</p>
         <div className="space-y-2.5">
           <div className="flex justify-between items-center">
@@ -1100,6 +1123,90 @@ function ExposurePage({ holdings }) {
           </div>
         </div>
       </div>
+
+      {/* D. 建議曝險 */}
+      {(() => {
+        const sugLev  = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
+        const sugCash = sugLev !== null ? 100 - sugLev : null
+        return (
+          <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">建議曝險</p>
+            <div className="space-y-2.5">
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">正二</span>
+                <span className="text-base font-semibold text-gray-900">
+                  {sugLev !== null ? `${sugLev}%` : '--'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-gray-600">現金</span>
+                <span className="text-base font-semibold text-gray-900">
+                  {sugCash !== null ? `${sugCash}%` : '--'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* E. 再平衡建議 */}
+      {(() => {
+        const sugLev = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
+        let rebalMsg = null
+        let rebalColor = 'text-gray-900'
+        if (sugLev === null) {
+          rebalMsg = '暫時無法計算'
+        } else {
+          const diff = sugLev - leveragedPct
+          if (Math.abs(diff) < 0.1) {
+            rebalMsg = '目前曝險已符合'
+          } else if (diff > 0) {
+            rebalMsg = `建議加碼：+${diff.toFixed(1)}% 正二`
+            rebalColor = 'text-red-500'
+          } else {
+            rebalMsg = '目前正二曝險高於建議'
+            rebalColor = 'text-green-600'
+          }
+        }
+        return (
+          <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">再平衡建議</p>
+            <p className={`text-sm font-semibold ${rebalColor}`}>{rebalMsg}</p>
+          </div>
+        )
+      })()}
+
+      {/* F. 下一加碼點 */}
+      {(() => {
+        if (drawdown === null) {
+          return (
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一加碼點</p>
+              <p className="text-sm text-gray-500">暫時無法計算</p>
+            </div>
+          )
+        }
+        const next = calcNextAddPoint(drawdown)
+        return (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">下一加碼點</p>
+            {next === null ? (
+              <p className="text-sm font-semibold text-gray-900">已達最高加碼區間</p>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">下一加碼</span>
+                  <span className="text-sm font-semibold text-gray-900">回檔 {next.threshold}%</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">距離</span>
+                  <span className="text-sm font-medium text-gray-700">再跌 {next.distance.toFixed(2)}%</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }
