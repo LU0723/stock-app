@@ -1190,6 +1190,12 @@ function ExposurePage({ holdings }) {
               {drawdown !== null ? `${drawdown.toFixed(2)}%` : '--'}
             </span>
           </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">建議正二曝險</span>
+            <span className="text-sm font-medium text-gray-900">
+              {sugLev !== null ? `${sugLev}%` : '--'}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -1226,25 +1232,6 @@ function ExposurePage({ holdings }) {
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-600">總資產</span>
             <span className="text-base font-semibold text-gray-900">{formatNumber(Math.round(totalAssets))}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* C. 回檔 / 建議曝險（App 客觀建議） */}
-      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">回檔 / 建議曝險</p>
-        <div className="space-y-2.5">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">從高點回落</span>
-            <span className={`text-sm font-medium ${drawdown !== null && drawdown < 0 ? 'text-green-600' : 'text-gray-500'}`}>
-              {drawdown !== null ? `${drawdown.toFixed(2)}%` : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">App 建議正二曝險</span>
-            <span className="text-base font-semibold text-gray-900">
-              {sugLev !== null ? `${sugLev}%` : '--'}
-            </span>
           </div>
         </div>
       </div>
