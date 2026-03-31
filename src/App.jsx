@@ -1096,30 +1096,21 @@ function ExposurePage({ holdings }) {
         <div className="space-y-2.5 pt-3 border-t border-gray-100">
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-600">現金</span>
-            <span className="text-sm font-medium text-gray-900">{formatNumber(Math.round(cash))}</span>
+            <span className="text-sm font-medium text-gray-900">
+              {formatNumber(Math.round(cash))}
+              <span className="text-xs text-gray-400 ml-1.5">({cashPct.toFixed(1)}%)</span>
+            </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-600">全部持股市值</span>
-            <span className="text-sm font-medium text-gray-900">{formatNumber(Math.round(totalMarketValue))}</span>
+            <span className="text-sm font-medium text-gray-900">
+              {formatNumber(Math.round(totalMarketValue))}
+              <span className="text-xs text-gray-400 ml-1.5">({leveragedPct.toFixed(1)}%)</span>
+            </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-sm text-gray-600">總資產</span>
             <span className="text-base font-semibold text-gray-900">{formatNumber(Math.round(totalAssets))}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* C. 目前曝險 */}
-      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">目前曝險</p>
-        <div className="space-y-2.5">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">正二</span>
-            <span className="text-base font-semibold text-gray-900">{leveragedPct.toFixed(1)}%</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">現金</span>
-            <span className="text-base font-semibold text-gray-900">{cashPct.toFixed(1)}%</span>
           </div>
         </div>
       </div>
@@ -1152,26 +1143,38 @@ function ExposurePage({ holdings }) {
       {/* E. 再平衡建議 */}
       {(() => {
         const sugLev = drawdown !== null ? calcSuggestedLeverage(drawdown) : null
-        let rebalMsg = null
-        let rebalColor = 'text-gray-900'
         if (sugLev === null) {
-          rebalMsg = '暫時無法計算'
+          return (
+            <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">再平衡建議</p>
+              <p className="text-sm text-gray-500">暫時無法計算</p>
+            </div>
+          )
+        }
+        const diff          = sugLev - leveragedPct                        // 百分比差距
+        const targetLevAmt  = totalAssets * (sugLev / 100)
+        const diffAmt       = Math.round(Math.abs(targetLevAmt - leveragedValue))
+        const isSmall       = Math.abs(diff) < 3.0
+
+        let label, labelColor, amtLine
+        if (isSmall) {
+          label      = '目前曝險已符合'
+          labelColor = 'text-gray-700'
+          amtLine    = '不需調整部位'
+        } else if (diff > 0) {
+          label      = `建議加碼：+${diff.toFixed(1)}% 正二`
+          labelColor = 'text-red-500'
+          amtLine    = `建議增加正二部位：NT$ ${formatNumber(diffAmt)}`
         } else {
-          const diff = sugLev - leveragedPct
-          if (Math.abs(diff) < 0.1) {
-            rebalMsg = '目前曝險已符合'
-          } else if (diff > 0) {
-            rebalMsg = `建議加碼：+${diff.toFixed(1)}% 正二`
-            rebalColor = 'text-red-500'
-          } else {
-            rebalMsg = '目前正二曝險高於建議'
-            rebalColor = 'text-green-600'
-          }
+          label      = '目前正二曝險高於建議'
+          labelColor = 'text-green-600'
+          amtLine    = `建議減少正二部位：NT$ ${formatNumber(diffAmt)}`
         }
         return (
           <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
             <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">再平衡建議</p>
-            <p className={`text-sm font-semibold ${rebalColor}`}>{rebalMsg}</p>
+            <p className={`text-sm font-semibold ${labelColor}`}>{label}</p>
+            <p className="text-sm text-gray-500 mt-1.5">{amtLine}</p>
           </div>
         )
       })()}
