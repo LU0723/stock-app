@@ -102,25 +102,58 @@ function saveTargetExposure(v) {
 }
 
 // ─── Monthly Ledger（新版資料模型）──────────────────────────────────────────
-// 格式：{ "2026-03": { cashflows: [...], snapshot: {...} | null }, ... }
+// 格式：{ "2026-04": { cashflows: [...], snapshot: { tw: {...}, us: {...}, savedAt } } }
+
+function migrateSnapshot(snap) {
+  if (!snap) return null
+  // 已是新格式（有 tw 子物件）
+  if (snap.tw) return snap
+  // 舊格式（直接有 totalAssets）→ 轉換為雙帳本
+  return {
+    tw: {
+      stockValue:  snap.twStockValue ?? 0,
+      cashValue:   snap.cashValue    ?? 0,
+      totalAssets: (snap.twStockValue ?? 0) + (snap.cashValue ?? 0),
+    },
+    us: {
+      schwabValue: snap.usStockValue ?? 0,
+      etoroValue:  0,
+      futoValue:   0,
+      totalAssets: snap.usStockValue ?? 0,
+    },
+    savedAt: snap.savedAt ?? null,
+  }
+}
 
 function loadLedger() {
+  let ledger = {}
   try {
     const saved = localStorage.getItem(MONTHLY_LEDGER_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) ledger = JSON.parse(saved)
   } catch {}
-  // 若舊版 cashflows 存在，遷移至當前月份（安全、不強制覆蓋）
-  const ledger = {}
-  try {
-    const raw = localStorage.getItem(PERF_CASHFLOWS_KEY)
-    if (raw) {
-      const oldCfs = JSON.parse(raw)
-      if (Array.isArray(oldCfs) && oldCfs.length > 0) {
-        const monthKey = new Date().toISOString().slice(0, 7)
-        ledger[monthKey] = { cashflows: oldCfs, snapshot: null }
+
+  if (Object.keys(ledger).length === 0) {
+    // 若舊版 cashflows 存在，遷移至當前月份（安全、不強制覆蓋）
+    try {
+      const raw = localStorage.getItem(PERF_CASHFLOWS_KEY)
+      if (raw) {
+        const oldCfs = JSON.parse(raw)
+        if (Array.isArray(oldCfs) && oldCfs.length > 0) {
+          const monthKey = new Date().toISOString().slice(0, 7)
+          ledger[monthKey] = { cashflows: oldCfs, snapshot: null }
+        }
       }
+    } catch {}
+    return ledger
+  }
+
+  // 遷移舊版 snapshot 格式（有 totalAssets 但沒有 tw 子物件）
+  for (const [month, data] of Object.entries(ledger)) {
+    const snap = data?.snapshot
+    if (snap && !snap.tw) {
+      ledger[month] = { ...data, snapshot: migrateSnapshot(snap) }
     }
-  } catch {}
+  }
   return ledger
 }
 function saveLedger(ledger) {
@@ -1351,21 +1384,23 @@ function ExposurePage({ holdings, onExitAdvanced }) {
 
 function CashflowForm({ onSave, onCancel }) {
   const today = new Date().toISOString().split('T')[0]
-  const [date,   setDate]   = useState(today)
-  const [type,   setType]   = useState('入金')
-  const [amount, setAmount] = useState('')
-  const [note,   setNote]   = useState('')
+  const [date,       setDate]       = useState(today)
+  const [type,       setType]       = useState('入金')
+  const [amount,     setAmount]     = useState('')
+  const [note,       setNote]       = useState('')
+  const [ledgerType, setLedgerType] = useState('tw')
 
   function handleSubmit(e) {
     e.preventDefault()
     const amt = parseFloat(amount)
     if (!date || isNaN(amt) || amt <= 0) return
     onSave({
-      id:     `cf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      id:         `cf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       date,
       type,
-      amount: amt,
-      note:   note.trim(),
+      amount:     amt,
+      note:       note.trim(),
+      ledgerType,
     })
   }
 
@@ -1389,6 +1424,17 @@ function CashflowForm({ onSave, onCancel }) {
               onChange={e => setDate(e.target.value)}
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]"
             />
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">帳本</label>
+            <select
+              value={ledgerType}
+              onChange={e => setLedgerType(e.target.value)}
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]"
+            >
+              <option value="tw">台股（TWD）</option>
+              <option value="us">美股（USD）</option>
+            </select>
           </div>
           <div>
             <label className="text-xs text-white mb-1 block">類型</label>
@@ -1455,7 +1501,10 @@ function CashflowList({ cashflows, onDelete }) {
       {[...cashflows].sort((a, b) => b.date.localeCompare(a.date)).map(cf => (
         <div key={cf.id} className="flex items-center justify-between py-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                cf.ledgerType === 'us' ? 'bg-orange-50 text-orange-500' : 'bg-sky-50 text-sky-600'
+              }`}>{cf.ledgerType === 'us' ? 'USD' : 'TWD'}</span>
               <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
                 cf.type === '入金'  ? 'bg-blue-50 text-blue-600' :
                 cf.type === '出金'  ? 'bg-gray-100 text-gray-600' :
@@ -1497,28 +1546,41 @@ function CashflowList({ cashflows, onDelete }) {
 function LedgerPage({ onExitAdvanced }) {
   const [ledger,        setLedger]        = useState(loadLedger)
   const [selectedMonth, setSelectedMonth] = useState(MONTH_OPTIONS[0].key)
-  const [snapInputs,    setSnapInputs]    = useState({ twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' })
-  const [showForm,      setShowForm]      = useState(false)
-  const [savedMsg,      setSavedMsg]      = useState(false)
+  const [snapInputs,    setSnapInputs]    = useState({
+    tw: { stockValue: '', cashValue: '' },
+    us: { schwabValue: '', etoroValue: '', futoValue: '' },
+  })
+  const [showForm, setShowForm] = useState(false)
+  const [savedMsg, setSavedMsg] = useState(false)
 
   // 月份切換時，從 ledger 讀入該月快照
   useEffect(() => {
     const snap = ledger[selectedMonth]?.snapshot
-    setSnapInputs(snap
-      ? { twStockValue: snap.twStockValue ?? '', usStockValue: snap.usStockValue ?? '', cashValue: snap.cashValue ?? '', otherAssetsValue: snap.otherAssetsValue ?? '' }
-      : { twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' }
+    setSnapInputs(snap?.tw
+      ? {
+          tw: { stockValue: snap.tw.stockValue ?? '', cashValue: snap.tw.cashValue ?? '' },
+          us: { schwabValue: snap.us?.schwabValue ?? '', etoroValue: snap.us?.etoroValue ?? '', futoValue: snap.us?.futoValue ?? '' },
+        }
+      : {
+          tw: { stockValue: '', cashValue: '' },
+          us: { schwabValue: '', etoroValue: '', futoValue: '' },
+        }
     )
   }, [selectedMonth]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const monthData  = ledger[selectedMonth] || { cashflows: [], snapshot: null }
-  const cashflows  = Array.isArray(monthData.cashflows) ? monthData.cashflows : []
+  const monthData = ledger[selectedMonth] || { cashflows: [], snapshot: null }
+  const cashflows = Array.isArray(monthData.cashflows) ? monthData.cashflows : []
 
-  // ── 快照計算 ──
-  const tw    = parseFloat(snapInputs.twStockValue)     || 0
-  const us    = parseFloat(snapInputs.usStockValue)     || 0
-  const cash  = parseFloat(snapInputs.cashValue)        || 0
-  const other = parseFloat(snapInputs.otherAssetsValue) || 0
-  const total = tw + us + cash + other
+  // ── 台股計算 ──
+  const twStock = parseFloat(snapInputs.tw.stockValue) || 0
+  const twCash  = parseFloat(snapInputs.tw.cashValue)  || 0
+  const twTotal = twStock + twCash
+
+  // ── 美股計算 ──
+  const usSchwab = parseFloat(snapInputs.us.schwabValue) || 0
+  const usEtoro  = parseFloat(snapInputs.us.etoroValue)  || 0
+  const usFuto   = parseFloat(snapInputs.us.futoValue)   || 0
+  const usTotal  = usSchwab + usEtoro + usFuto
 
   function updateLedger(next) { setLedger(next); saveLedger(next) }
 
@@ -1543,12 +1605,23 @@ function LedgerPage({ onExitAdvanced }) {
   }
 
   function handleSaveSnapshot() {
-    const snap = { twStockValue: tw, usStockValue: us, cashValue: cash, otherAssetsValue: other, totalAssets: total, savedAt: new Date().toISOString() }
+    const snap = {
+      tw: { stockValue: twStock, cashValue: twCash, totalAssets: twTotal },
+      us: { schwabValue: usSchwab, etoroValue: usEtoro, futoValue: usFuto, totalAssets: usTotal },
+      savedAt: new Date().toISOString(),
+    }
     const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
     const next = { ...ledger, [selectedMonth]: { ...existing, snapshot: snap } }
     updateLedger(next)
     setSavedMsg(true)
     setTimeout(() => setSavedMsg(false), 2000)
+  }
+
+  function setTwField(field, val) {
+    setSnapInputs(prev => ({ ...prev, tw: { ...prev.tw, [field]: val } }))
+  }
+  function setUsField(field, val) {
+    setSnapInputs(prev => ({ ...prev, us: { ...prev.us, [field]: val } }))
   }
 
   return (
@@ -1590,36 +1663,72 @@ function LedgerPage({ onExitAdvanced }) {
 
       {/* 3. 月底資產快照卡 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">月底資產快照</p>
-        <div className="space-y-3">
-          {[
-            { label: '台股目前市值', field: 'twStockValue',    placeholder: '0' },
-            { label: '美股目前市值', field: 'usStockValue',    placeholder: '0' },
-            { label: '現金',         field: 'cashValue',        placeholder: '0' },
-            { label: '其他資產',     field: 'otherAssetsValue', placeholder: '0（可選）' },
-          ].map(({ label, field, placeholder }) => (
-            <div key={field} className="flex items-center gap-3">
-              <label className="text-sm text-gray-600 w-32 shrink-0">{label}</label>
-              <input
-                type="number"
-                value={snapInputs[field]}
-                onChange={e => setSnapInputs(prev => ({ ...prev, [field]: e.target.value }))}
-                placeholder={placeholder}
-                min="0"
-                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
-              />
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">月底資產快照</p>
+
+        {/* 台股帳本（TWD）*/}
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-sky-600 mb-2.5">台股帳本（TWD）</p>
+          <div className="space-y-2.5">
+            {[
+              { label: '台股目前市值', field: 'stockValue' },
+              { label: '台幣現金',     field: 'cashValue'  },
+            ].map(({ label, field }) => (
+              <div key={field} className="flex items-center gap-3">
+                <label className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
+                <input
+                  type="number"
+                  value={snapInputs.tw[field]}
+                  onChange={e => setTwField(field, e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
+                />
+              </div>
+            ))}
+            <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+              <span className="text-sm text-gray-600">台股總資產（TWD）</span>
+              <span className="text-sm font-semibold text-gray-900">
+                {twTotal > 0 ? formatNumber(Math.round(twTotal)) : '--'}
+              </span>
             </div>
-          ))}
+          </div>
         </div>
-        <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
-          <span className="text-sm font-medium text-gray-700">總資產</span>
-          <span className="text-base font-semibold text-gray-900">
-            {total > 0 ? formatNumber(Math.round(total)) : '--'}
-          </span>
+
+        <div className="h-px bg-gray-100 my-3" />
+
+        {/* 美股帳本（USD）*/}
+        <div>
+          <p className="text-xs font-semibold text-orange-500 mb-2.5">美股帳本（USD）</p>
+          <div className="space-y-2.5">
+            {[
+              { label: 'Schwab 市值', field: 'schwabValue' },
+              { label: 'eToro 市值',  field: 'etoroValue'  },
+              { label: '複委託市值',  field: 'futoValue'   },
+            ].map(({ label, field }) => (
+              <div key={field} className="flex items-center gap-3">
+                <label className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
+                <input
+                  type="number"
+                  value={snapInputs.us[field]}
+                  onChange={e => setUsField(field, e.target.value)}
+                  placeholder="0"
+                  min="0"
+                  className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
+                />
+              </div>
+            ))}
+            <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+              <span className="text-sm text-gray-600">美股總資產（USD）</span>
+              <span className="text-sm font-semibold text-gray-900">
+                {usTotal > 0 ? formatNumber(Math.round(usTotal)) : '--'}
+              </span>
+            </div>
+          </div>
         </div>
+
         <button
           onClick={handleSaveSnapshot}
-          className={`mt-4 w-full py-2.5 rounded-xl text-sm font-medium transition-colors ${
+          className={`mt-5 w-full py-2.5 rounded-xl text-sm font-medium transition-colors ${
             savedMsg
               ? 'bg-green-50 text-green-700 border border-green-200'
               : 'bg-gray-900 text-white hover:bg-gray-700'
@@ -1638,6 +1747,78 @@ function LedgerPage({ onExitAdvanced }) {
 
 // ─── 績效 / XIRR 統計頁（第 5 頁）────────────────────────────────────────────
 
+// 計算單一帳本的 XIRR 摘要統計
+function calcLedgerStats(cashflows, totalAssets, savedAt) {
+  const today = new Date().toISOString().slice(0, 10)
+  const netDeposit = cashflows.reduce((sum, cf) => {
+    if (cf.type === '入金') return sum + Math.abs(Number(cf.amount))
+    if (cf.type === '出金') return sum - Math.abs(Number(cf.amount))
+    return sum
+  }, 0)
+  const realizedPnL = cashflows
+    .filter(cf => cf.type === '已實現損益')
+    .reduce((sum, cf) => sum + Number(cf.amount), 0)
+  let xirr = null
+  if (cashflows.length > 0 && totalAssets > 0) {
+    const endDate = savedAt?.slice(0, 10) ?? today
+    const payments = [
+      ...cashflows.map(cf => ({
+        date:   cf.date,
+        amount: cf.type === '入金' ? -Math.abs(Number(cf.amount)) : Math.abs(Number(cf.amount)),
+      })),
+      { date: endDate, amount: totalAssets },
+    ]
+    xirr = calculateXIRR(payments)
+  }
+  return { netDeposit, realizedPnL, xirr }
+}
+
+function PerfCard({ title, accentClass, cashflows, totalAssets, savedAt }) {
+  const hasCfs = cashflows.length > 0
+  const { netDeposit, realizedPnL, xirr } = useMemo(
+    () => calcLedgerStats(cashflows, totalAssets, savedAt),
+    [cashflows, totalAssets, savedAt]
+  )
+  const xirrStr   = xirr !== null ? `${(xirr * 100).toFixed(2)}%` : '--'
+  const xirrColor = xirr !== null ? (xirr >= 0 ? 'text-red-500' : 'text-green-600') : 'text-gray-400'
+  const hasRealPnL = cashflows.some(cf => cf.type === '已實現損益')
+
+  return (
+    <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+      <p className={`text-xs font-semibold ${accentClass} mb-3`}>{title}</p>
+      <div className="space-y-2.5">
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-600">目前總資產</span>
+          <span className="text-sm font-medium text-gray-900">
+            {totalAssets > 0 ? formatNumber(Math.round(totalAssets)) : '--'}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-600">累計淨入金</span>
+          <span className="text-sm font-medium text-gray-900">
+            {hasCfs ? formatNumber(Math.round(netDeposit)) : '--'}
+          </span>
+        </div>
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-gray-600">累計已實現損益</span>
+          <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
+            {hasRealPnL
+              ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
+              : '--'}
+          </span>
+        </div>
+        <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+          <span className="text-sm font-semibold text-gray-700">XIRR（年化報酬）</span>
+          <span className={`text-base font-bold ${xirrColor}`}>{xirrStr}</span>
+        </div>
+      </div>
+      {savedAt && (
+        <p className="text-[11px] text-gray-300 mt-3">期末資產來源：{savedAt.slice(0, 10)}</p>
+      )}
+    </div>
+  )
+}
+
 function PerformancePage({ onExitAdvanced }) {
   // 每次 mount 都讀最新 ledger
   const [ledger] = useState(loadLedger)
@@ -1649,47 +1830,33 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  // 取最新有 snapshot 的月份作為期末資產
-  const latestSnap = useMemo(() =>
+  // 台股 cashflows（無 ledgerType 的舊資料視為台股）
+  const twCashflows = useMemo(() =>
+    allCashflows.filter(cf => !cf.ledgerType || cf.ledgerType === 'tw'),
+    [allCashflows]
+  )
+  const usCashflows = useMemo(() =>
+    allCashflows.filter(cf => cf.ledgerType === 'us'),
+    [allCashflows]
+  )
+
+  // 取各帳本最新 snapshot
+  const latestTwSnap = useMemo(() =>
     Object.entries(ledger)
-      .filter(([, m]) => m?.snapshot?.totalAssets > 0)
+      .filter(([, m]) => m?.snapshot?.tw?.totalAssets > 0)
+      .sort(([a], [b]) => b.localeCompare(a))
+      [0]?.[1]?.snapshot ?? null,
+    [ledger]
+  )
+  const latestUsSnap = useMemo(() =>
+    Object.entries(ledger)
+      .filter(([, m]) => m?.snapshot?.us?.totalAssets > 0)
       .sort(([a], [b]) => b.localeCompare(a))
       [0]?.[1]?.snapshot ?? null,
     [ledger]
   )
 
-  const total = latestSnap?.totalAssets ?? 0
-
-  // ── XIRR：入金負數，出金/已實現損益正數，期末資產正數 ──
-  const xirr = useMemo(() => {
-    if (allCashflows.length === 0 || total <= 0) return null
-    const endDate = latestSnap?.savedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)
-    const payments = [
-      ...allCashflows.map(cf => ({
-        date:   cf.date,
-        amount: cf.type === '入金'
-          ? -Math.abs(Number(cf.amount))
-          :  Math.abs(Number(cf.amount)),
-      })),
-      { date: endDate, amount: total },
-    ]
-    return calculateXIRR(payments)
-  }, [allCashflows, total, latestSnap])
-
-  // ── 摘要計算 ──
-  const netDeposit = allCashflows.reduce((sum, cf) => {
-    if (cf.type === '入金') return sum + Math.abs(Number(cf.amount))
-    if (cf.type === '出金') return sum - Math.abs(Number(cf.amount))
-    return sum
-  }, 0)
-
-  const realizedPnL = allCashflows
-    .filter(cf => cf.type === '已實現損益')
-    .reduce((sum, cf) => sum + Number(cf.amount), 0)
-
-  const xirrStr   = xirr !== null ? `${(xirr * 100).toFixed(2)}%` : '--'
-  const xirrColor = xirr !== null ? (xirr >= 0 ? 'text-red-500' : 'text-green-600') : 'text-gray-900'
-  const hasRealPnL = allCashflows.some(cf => cf.type === '已實現損益')
+  const hasAnyData = allCashflows.length > 0
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -1701,51 +1868,36 @@ function PerformancePage({ onExitAdvanced }) {
         >退出進階模式</button>
       </div>
 
-      {/* 績效摘要卡 */}
-      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">績效摘要</p>
-        <div className="space-y-2.5">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">目前總資產</span>
-            <span className="text-sm font-medium text-gray-900">
-              {total > 0 ? formatNumber(Math.round(total)) : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">累計淨入金</span>
-            <span className="text-sm font-medium text-gray-900">
-              {allCashflows.length > 0 ? formatNumber(Math.round(netDeposit)) : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">累計已實現損益</span>
-            <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
-              {hasRealPnL
-                ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
-                : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-            <span className="text-sm font-semibold text-gray-700">XIRR（年化報酬）</span>
-            <span className={`text-base font-bold ${xirrColor}`}>{xirrStr}</span>
-          </div>
-        </div>
-        {latestSnap && (
-          <p className="text-[11px] text-gray-300 mt-3">
-            期末資產來源：{latestSnap.savedAt?.slice(0, 10) ?? '--'}
-          </p>
-        )}
-      </div>
-
-      {/* 資料來源說明 */}
-      {allCashflows.length === 0 && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center py-8">
+      {!hasAnyData && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center py-10">
           <p className="text-sm text-gray-400">尚無資料</p>
           <p className="text-xs text-gray-300 mt-1">請先在「記帳」頁新增現金流並儲存月底資產</p>
         </div>
       )}
 
-      {/* 各月摘要 */}
+      {hasAnyData && (
+        <>
+          {/* 台股績效（TWD）*/}
+          <PerfCard
+            title="台股績效（TWD）"
+            accentClass="text-sky-600"
+            cashflows={twCashflows}
+            totalAssets={latestTwSnap?.tw?.totalAssets ?? 0}
+            savedAt={latestTwSnap?.savedAt ?? null}
+          />
+
+          {/* 美股績效（USD）*/}
+          <PerfCard
+            title="美股績效（USD）"
+            accentClass="text-orange-500"
+            cashflows={usCashflows}
+            totalAssets={latestUsSnap?.us?.totalAssets ?? 0}
+            savedAt={latestUsSnap?.savedAt ?? null}
+          />
+        </>
+      )}
+
+      {/* 各月紀錄 */}
       {Object.keys(ledger).length > 0 && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">各月紀錄</p>
@@ -1753,19 +1905,30 @@ function PerformancePage({ onExitAdvanced }) {
             {Object.entries(ledger)
               .sort(([a], [b]) => b.localeCompare(a))
               .map(([month, data]) => {
-                const cfs = Array.isArray(data?.cashflows) ? data.cashflows : []
+                const cfs  = Array.isArray(data?.cashflows) ? data.cashflows : []
                 const snap = data?.snapshot
+                const twT  = snap?.tw?.totalAssets
+                const usT  = snap?.us?.totalAssets
                 return (
-                  <div key={month} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                    <span className="text-sm text-gray-700">{month.replace('-', '/')}</span>
-                    <div className="text-right">
+                  <div key={month} className="py-1.5 border-b border-gray-50 last:border-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-700">{month.replace('-', '/')}</span>
                       <span className="text-xs text-gray-400">{cfs.length} 筆紀錄</span>
-                      {snap && (
-                        <span className="text-xs text-gray-500 ml-2">
-                          總資產 {formatNumber(Math.round(snap.totalAssets))}
-                        </span>
-                      )}
                     </div>
+                    {snap && (
+                      <div className="flex gap-3 mt-0.5">
+                        {twT > 0 && (
+                          <span className="text-[11px] text-sky-600">
+                            台股 {formatNumber(Math.round(twT))}
+                          </span>
+                        )}
+                        {usT > 0 && (
+                          <span className="text-[11px] text-orange-500">
+                            美股 {formatNumber(Math.round(usT))}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
