@@ -27,6 +27,10 @@ const INDEX_HIGH_KEY      = 'twii-year-high'
 const TARGET_EXPOSURE_KEY = 'exposure-target-lev'
 const ADVANCED_MODE_KEY   = 'advanced-mode'
 const YEAR_HIGH_CACHE_KEY = 'twii-year-high-cache'  // { date, value }，每日快取
+const PERF_SNAPSHOT_KEY   = 'performance-snapshot'
+const PERF_CASHFLOWS_KEY  = 'performance-cashflows'
+const NORMAL_TAB_KEY      = 'normalTab'
+const ADVANCED_TAB_KEY    = 'advancedTab'
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -93,6 +97,24 @@ function saveYearHighCache(value) {
 }
 function saveTargetExposure(v) {
   localStorage.setItem(TARGET_EXPOSURE_KEY, String(v))
+}
+
+function loadSnapshot() {
+  try {
+    const saved = localStorage.getItem(PERF_SNAPSHOT_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return { twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' }
+}
+function saveSnapshot(s) {
+  localStorage.setItem(PERF_SNAPSHOT_KEY, JSON.stringify({ ...s, updatedAt: new Date().toISOString() }))
+}
+function loadCashflows() {
+  try {
+    const saved = localStorage.getItem(PERF_CASHFLOWS_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return []
 }
 
 // ─── 共用股價 API ─────────────────────────────────────────────────────────────
@@ -1082,7 +1104,7 @@ function calcSuggestedLeverage(drawdown) {
 
 // ─── 曝險計算頁 ───────────────────────────────────────────────────────────────
 
-function ExposurePage({ holdings }) {
+function ExposurePage({ holdings, onExitAdvanced }) {
   const [cashInput,   setCashInput]   = useState(() => {
     const v = loadCash()
     return v > 0 ? String(v) : ''
@@ -1166,7 +1188,13 @@ function ExposurePage({ holdings }) {
 
   return (
     <div className="px-4 pt-12 pb-6">
-      <h1 className="text-lg font-semibold text-gray-800 tracking-wide mb-5">曝險計算</h1>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">曝險計算</h1>
+        <button
+          onClick={onExitAdvanced}
+          className="text-xs text-gray-500 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1.5 transition-colors"
+        >退出進階模式</button>
+      </div>
 
       {/* A. 市場狀態 */}
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
@@ -1296,13 +1324,121 @@ function ExposurePage({ holdings }) {
   )
 }
 
+// ─── 績效 / XIRR 頁 ───────────────────────────────────────────────────────────
+
+function PerformancePage({ onExitAdvanced }) {
+  const [snap, setSnap] = useState(loadSnapshot)
+  const cashflows = loadCashflows()
+
+  function handleSnapChange(field, value) {
+    const next = { ...snap, [field]: value }
+    setSnap(next)
+    saveSnapshot(next)
+  }
+
+  const tw    = parseFloat(snap.twStockValue)    || 0
+  const us    = parseFloat(snap.usStockValue)    || 0
+  const cash  = parseFloat(snap.cashValue)       || 0
+  const other = parseFloat(snap.otherAssetsValue)|| 0
+  const total = tw + us + cash + other
+
+  return (
+    <div className="px-4 pt-12 pb-6">
+      {/* 標題列 + 退出按鈕 */}
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">績效 / XIRR</h1>
+        <button
+          onClick={onExitAdvanced}
+          className="text-xs text-gray-500 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1.5 transition-colors"
+        >退出進階模式</button>
+      </div>
+
+      {/* 1. 績效摘要卡 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">績效摘要</p>
+        <div className="space-y-2.5">
+          {[
+            ['目前總資產',     total > 0 ? formatNumber(Math.round(total)) : '--'],
+            ['累計淨入金',     '--'],
+            ['累計已實現損益', '--'],
+            ['XIRR',          '--'],
+            ['近 30 天報酬',  '--'],
+            ['年化報酬率',    '--'],
+          ].map(([label, val]) => (
+            <div key={label} className="flex justify-between items-center">
+              <span className="text-sm text-gray-600">{label}</span>
+              <span className="text-sm font-medium text-gray-900">{val}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* 2. 資產快照卡 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">資產快照（手動輸入）</p>
+        <div className="space-y-3">
+          {[
+            { label: '台股目前市值', field: 'twStockValue', placeholder: '0' },
+            { label: '美股目前市值', field: 'usStockValue', placeholder: '0' },
+            { label: '現金',         field: 'cashValue',    placeholder: '0' },
+            { label: '其他資產',     field: 'otherAssetsValue', placeholder: '0（可選）' },
+          ].map(({ label, field, placeholder }) => (
+            <div key={field} className="flex items-center gap-3">
+              <label className="text-sm text-gray-600 w-32 shrink-0">{label}</label>
+              <input
+                type="number"
+                value={snap[field]}
+                onChange={e => handleSnapChange(field, e.target.value)}
+                placeholder={placeholder}
+                min="0"
+                className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-between items-center mt-3 pt-3 border-t border-gray-100">
+          <span className="text-sm font-medium text-gray-700">總資產</span>
+          <span className="text-base font-semibold text-gray-900">
+            {total > 0 ? formatNumber(Math.round(total)) : '--'}
+          </span>
+        </div>
+      </div>
+
+      {/* 3. 現金流紀錄卡 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">現金流紀錄</p>
+        {cashflows.length === 0 ? (
+          <div className="py-6 text-center">
+            <p className="text-sm text-gray-400">尚無紀錄</p>
+            <p className="text-xs text-gray-300 mt-1">請新增入金 / 出金 / 已實現損益紀錄</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cashflows.map(cf => (
+              <div key={cf.id} className="flex justify-between items-center py-1.5">
+                <div>
+                  <p className="text-sm text-gray-800">{cf.type}</p>
+                  <p className="text-xs text-gray-400">{cf.date}{cf.note ? ` · ${cf.note}` : ''}</p>
+                </div>
+                <span className={`text-sm font-medium ${cf.amount >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                  {cf.amount >= 0 ? '+' : ''}{formatNumber(cf.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── 底部導覽列 ───────────────────────────────────────────────────────────────
 
 function BottomNav({ activePage, onNavigate, advancedMode }) {
-  const allTabs = [
+  const normalTabs = [
     {
       id: 'portfolio',
-      label: '庫存',
+      label: '我的持股',
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1322,9 +1458,12 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
         </svg>
       ),
     },
+  ]
+
+  const advancedTabs = [
     {
       id: 'exposure',
-      label: '曝險',
+      label: '曝險計算',
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1334,11 +1473,22 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
         </svg>
       ),
     },
+    {
+      id: 'performance',
+      label: '績效/XIRR',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+        </svg>
+      ),
+    },
   ]
-  const tabs = advancedMode ? allTabs : allTabs.filter(t => t.id !== 'exposure')
+
+  const tabs = advancedMode ? advancedTabs : normalTabs
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t bg-white border-gray-200">
+    <div className={`fixed bottom-0 left-0 right-0 z-40 max-w-md mx-auto border-t bg-white ${advancedMode ? 'border-indigo-100' : 'border-gray-200'}`}>
       <div className="flex">
         {tabs.map(tab => {
           const isActive = activePage === tab.id
@@ -1347,11 +1497,15 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
               key={tab.id}
               onClick={() => onNavigate(tab.id)}
               className={`flex-1 flex flex-col items-center justify-center py-2.5 gap-1 transition-colors
-                ${isActive ? 'text-gray-900' : 'text-gray-300'}`}
+                ${isActive
+                  ? (advancedMode ? 'text-indigo-600' : 'text-gray-900')
+                  : 'text-gray-300'}`}
             >
               {tab.icon}
               <span className="text-[10px] font-medium tracking-wide">{tab.label}</span>
-              {isActive && <span className="absolute bottom-1 w-1 h-1 rounded-full bg-gray-900" />}
+              {isActive && (
+                <span className={`absolute bottom-1 w-1 h-1 rounded-full ${advancedMode ? 'bg-indigo-500' : 'bg-gray-900'}`} />
+              )}
             </button>
           )
         })}
@@ -1372,11 +1526,15 @@ export default function App() {
   const [advancedMode,  setAdvancedMode]  = useState(
     () => localStorage.getItem(ADVANCED_MODE_KEY) === 'true'
   )
-  const [activePage,    setActivePage]    = useState(() => {
-    const saved = localStorage.getItem('activeTab') ?? 'portfolio'
-    const isAdv = localStorage.getItem(ADVANCED_MODE_KEY) === 'true'
-    return (saved === 'exposure' && !isAdv) ? 'portfolio' : saved
+  const [normalTab, setNormalTab] = useState(() => {
+    const saved = localStorage.getItem(NORMAL_TAB_KEY)
+    return (saved === 'portfolio' || saved === 'watchlist') ? saved : 'portfolio'
   })
+  const [advancedTab, setAdvancedTab] = useState(() => {
+    const saved = localStorage.getItem(ADVANCED_TAB_KEY)
+    return (saved === 'exposure' || saved === 'performance') ? saved : 'exposure'
+  })
+  const activePage = advancedMode ? advancedTab : normalTab
   const [toast, setToast] = useState('')
 
   const stocks  = holdings.map(calcStock)
@@ -1414,7 +1572,7 @@ export default function App() {
       refreshPrices(loadHoldings())
     }
     prevPageRef.current = activePage
-  }, [activePage]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [normalTab, advancedTab, advancedMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAdd(newHolding) {
     const newHoldings = [...holdings, newHolding]
@@ -1443,16 +1601,22 @@ export default function App() {
     setAdvancedMode(next)
     localStorage.setItem(ADVANCED_MODE_KEY, String(next))
     if (next) {
-      setActivePage('exposure')
-      localStorage.setItem('activeTab', 'exposure')
+      setAdvancedTab('exposure')
+      localStorage.setItem(ADVANCED_TAB_KEY, 'exposure')
       showToast('已開啟進階模式')
     } else {
-      if (activePage === 'exposure') {
-        setActivePage('portfolio')
-        localStorage.setItem('activeTab', 'portfolio')
-      }
+      setNormalTab('portfolio')
+      localStorage.setItem(NORMAL_TAB_KEY, 'portfolio')
       showToast('已關閉進階模式')
     }
+  }
+
+  function handleExitAdvanced() {
+    setAdvancedMode(false)
+    localStorage.setItem(ADVANCED_MODE_KEY, 'false')
+    setNormalTab('portfolio')
+    localStorage.setItem(NORMAL_TAB_KEY, 'portfolio')
+    showToast('已關閉進階模式')
   }
 
   return (
@@ -1487,7 +1651,10 @@ export default function App() {
       {activePage === 'watchlist' && <WatchlistPage />}
 
       {/* ── 曝險計算頁 ── */}
-      {activePage === 'exposure' && <ExposurePage holdings={holdings} />}
+      {activePage === 'exposure' && <ExposurePage holdings={holdings} onExitAdvanced={handleExitAdvanced} />}
+
+      {/* ── 績效 / XIRR 頁 ── */}
+      {activePage === 'performance' && <PerformancePage onExitAdvanced={handleExitAdvanced} />}
 
       {/* ── 新增 / 編輯 Modal ── */}
       {modal === 'add' && (
@@ -1505,8 +1672,13 @@ export default function App() {
         activePage={activePage}
         advancedMode={advancedMode}
         onNavigate={page => {
-          localStorage.setItem('activeTab', page)
-          setActivePage(page)
+          if (advancedMode) {
+            setAdvancedTab(page)
+            localStorage.setItem(ADVANCED_TAB_KEY, page)
+          } else {
+            setNormalTab(page)
+            localStorage.setItem(NORMAL_TAB_KEY, page)
+          }
         }}
       />
 
