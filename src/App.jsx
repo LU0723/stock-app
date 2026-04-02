@@ -32,6 +32,7 @@ const PERF_SNAPSHOT_KEY   = 'performance-snapshot'
 const PERF_CASHFLOWS_KEY  = 'performance-cashflows'
 const NORMAL_TAB_KEY      = 'normalTab'
 const ADVANCED_TAB_KEY    = 'advancedTab'
+const MONTHLY_LEDGER_KEY  = 'performance-monthly-ledger'
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -100,25 +101,43 @@ function saveTargetExposure(v) {
   localStorage.setItem(TARGET_EXPOSURE_KEY, String(v))
 }
 
-function loadSnapshot() {
+// ─── Monthly Ledger（新版資料模型）──────────────────────────────────────────
+// 格式：{ "2026-03": { cashflows: [...], snapshot: {...} | null }, ... }
+
+function loadLedger() {
   try {
-    const saved = localStorage.getItem(PERF_SNAPSHOT_KEY)
+    const saved = localStorage.getItem(MONTHLY_LEDGER_KEY)
     if (saved) return JSON.parse(saved)
   } catch {}
-  return { twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' }
-}
-function saveSnapshot(s) {
-  localStorage.setItem(PERF_SNAPSHOT_KEY, JSON.stringify({ ...s, updatedAt: new Date().toISOString() }))
-}
-function loadCashflows() {
+  // 若舊版 cashflows 存在，遷移至當前月份（安全、不強制覆蓋）
+  const ledger = {}
   try {
-    const saved = localStorage.getItem(PERF_CASHFLOWS_KEY)
-    if (saved) return JSON.parse(saved)
+    const raw = localStorage.getItem(PERF_CASHFLOWS_KEY)
+    if (raw) {
+      const oldCfs = JSON.parse(raw)
+      if (Array.isArray(oldCfs) && oldCfs.length > 0) {
+        const monthKey = new Date().toISOString().slice(0, 7)
+        ledger[monthKey] = { cashflows: oldCfs, snapshot: null }
+      }
+    }
   } catch {}
-  return []
+  return ledger
 }
-function saveCashflows(list) {
-  localStorage.setItem(PERF_CASHFLOWS_KEY, JSON.stringify(list))
+function saveLedger(ledger) {
+  localStorage.setItem(MONTHLY_LEDGER_KEY, JSON.stringify(ledger))
+}
+
+// ─── 月份選項（近 12 個月）──────────────────────────────────────────────────
+function getMonthOptions() {
+  const options = []
+  const now = new Date()
+  for (let i = 0; i < 12; i++) {
+    const d   = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}`
+    options.push({ key, label })
+  }
+  return options
 }
 
 // ─── 共用股價 API ─────────────────────────────────────────────────────────────
@@ -1328,7 +1347,7 @@ function ExposurePage({ holdings, onExitAdvanced }) {
   )
 }
 
-// ─── 現金流新增表單 ───────────────────────────────────────────────────────────
+// ─── 現金流新增表單（兩頁共用）────────────────────────────────────────────────
 
 function CashflowForm({ onSave, onCancel }) {
   const today = new Date().toISOString().split('T')[0]
@@ -1417,130 +1436,174 @@ function CashflowForm({ onSave, onCancel }) {
   )
 }
 
-// ─── 績效 / XIRR 頁 ───────────────────────────────────────────────────────────
+// ─── 每月記帳頁（第 4 頁）────────────────────────────────────────────────────
 
-function PerformancePage({ onExitAdvanced }) {
-  const [snap,      setSnap]      = useState(loadSnapshot)
-  const [cashflows, setCashflows] = useState(loadCashflows)
-  const [showForm,  setShowForm]  = useState(false)
+const MONTH_OPTIONS = getMonthOptions()
 
-  const tw    = parseFloat(snap.twStockValue)     || 0
-  const us    = parseFloat(snap.usStockValue)     || 0
-  const cash  = parseFloat(snap.cashValue)        || 0
-  const other = parseFloat(snap.otherAssetsValue) || 0
+// 現金流列表（LedgerPage / PerformancePage 共用的 render 邏輯）
+function CashflowList({ cashflows, onDelete }) {
+  if (cashflows.length === 0) {
+    return (
+      <div className="py-6 text-center">
+        <p className="text-sm text-gray-400">尚無紀錄</p>
+        <p className="text-xs text-gray-300 mt-1">請新增入金 / 出金 / 已實現損益</p>
+      </div>
+    )
+  }
+  return (
+    <div className="divide-y divide-gray-100">
+      {[...cashflows].sort((a, b) => b.date.localeCompare(a.date)).map(cf => (
+        <div key={cf.id} className="flex items-center justify-between py-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                cf.type === '入金'  ? 'bg-blue-50 text-blue-600' :
+                cf.type === '出金'  ? 'bg-gray-100 text-gray-600' :
+                'bg-green-50 text-green-700'
+              }`}>{cf.type}</span>
+              <span className="text-xs text-gray-400">{cf.date}</span>
+            </div>
+            {cf.note && <p className="text-xs text-gray-400 mt-0.5 truncate">{cf.note}</p>}
+          </div>
+          <div className="flex items-center gap-2 ml-2 shrink-0">
+            <span className={`text-sm font-medium tabular-nums ${
+              cf.type === '入金' ? 'text-gray-600' :
+              cf.type === '出金' ? 'text-green-600' : 'text-red-500'
+            }`}>
+              {cf.type === '入金' ? '-' : '+'}{formatNumber(Math.round(Math.abs(Number(cf.amount))))}
+            </span>
+            {onDelete && (
+              <button
+                onClick={() => onDelete(cf.id)}
+                className="text-gray-300 hover:text-red-400 transition-colors p-1"
+                title="刪除"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6l-1 14H6L5 6"/>
+                  <path d="M10 11v6M14 11v6"/>
+                  <path d="M9 6V4h6v2"/>
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function LedgerPage({ onExitAdvanced }) {
+  const [ledger,        setLedger]        = useState(loadLedger)
+  const [selectedMonth, setSelectedMonth] = useState(MONTH_OPTIONS[0].key)
+  const [snapInputs,    setSnapInputs]    = useState({ twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' })
+  const [showForm,      setShowForm]      = useState(false)
+  const [savedMsg,      setSavedMsg]      = useState(false)
+
+  // 月份切換時，從 ledger 讀入該月快照
+  useEffect(() => {
+    const snap = ledger[selectedMonth]?.snapshot
+    setSnapInputs(snap
+      ? { twStockValue: snap.twStockValue ?? '', usStockValue: snap.usStockValue ?? '', cashValue: snap.cashValue ?? '', otherAssetsValue: snap.otherAssetsValue ?? '' }
+      : { twStockValue: '', usStockValue: '', cashValue: '', otherAssetsValue: '' }
+    )
+  }, [selectedMonth]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const monthData  = ledger[selectedMonth] || { cashflows: [], snapshot: null }
+  const cashflows  = Array.isArray(monthData.cashflows) ? monthData.cashflows : []
+
+  // ── 快照計算 ──
+  const tw    = parseFloat(snapInputs.twStockValue)     || 0
+  const us    = parseFloat(snapInputs.usStockValue)     || 0
+  const cash  = parseFloat(snapInputs.cashValue)        || 0
+  const other = parseFloat(snapInputs.otherAssetsValue) || 0
   const total = tw + us + cash + other
 
-  function handleSnapChange(field, value) {
-    const next = { ...snap, [field]: value }
-    setSnap(next)
-    saveSnapshot(next)
-  }
+  function updateLedger(next) { setLedger(next); saveLedger(next) }
 
   function handleAddCashflow(cf) {
-    const next = [...cashflows, cf].sort((a, b) => a.date.localeCompare(b.date))
-    setCashflows(next)
-    saveCashflows(next)
+    const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
+    const next = { ...ledger, [selectedMonth]: {
+      ...existing,
+      cashflows: [...existing.cashflows, cf].sort((a, b) => a.date.localeCompare(b.date)),
+    }}
+    updateLedger(next)
     setShowForm(false)
   }
 
   function handleDeleteCashflow(id) {
     if (!window.confirm('確定刪除這筆紀錄？')) return
-    const next = cashflows.filter(cf => cf.id !== id)
-    setCashflows(next)
-    saveCashflows(next)
+    const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
+    const next = { ...ledger, [selectedMonth]: {
+      ...existing,
+      cashflows: existing.cashflows.filter(cf => cf.id !== id),
+    }}
+    updateLedger(next)
   }
 
-  // ── XIRR 計算 ──
-  // 入金 → 負數（資金流出），出金 / 已實現損益 → 正數，期末總資產 → 正數
-  const xirr = useMemo(() => {
-    if (cashflows.length === 0 || total <= 0) return null
-    const today = new Date().toISOString().split('T')[0]
-    const payments = [
-      ...cashflows.map(cf => ({
-        date:   cf.date,
-        amount: cf.type === '入金'
-          ? -Math.abs(Number(cf.amount))
-          :  Math.abs(Number(cf.amount)),
-      })),
-      { date: today, amount: total },
-    ]
-    return calculateXIRR(payments)
-  }, [cashflows, total])
-
-  // ── 摘要計算 ──
-  const netDeposit = cashflows.reduce((sum, cf) => {
-    if (cf.type === '入金')  return sum + Math.abs(Number(cf.amount))
-    if (cf.type === '出金')  return sum - Math.abs(Number(cf.amount))
-    return sum
-  }, 0)
-
-  const realizedPnL = cashflows
-    .filter(cf => cf.type === '已實現損益')
-    .reduce((sum, cf) => sum + Number(cf.amount), 0)
-
-  const xirrStr = xirr !== null ? `${(xirr * 100).toFixed(2)}%` : '--'
-  const xirrColor = xirr !== null
-    ? (xirr >= 0 ? 'text-red-500' : 'text-green-600')
-    : 'text-gray-900'
+  function handleSaveSnapshot() {
+    const snap = { twStockValue: tw, usStockValue: us, cashValue: cash, otherAssetsValue: other, totalAssets: total, savedAt: new Date().toISOString() }
+    const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
+    const next = { ...ledger, [selectedMonth]: { ...existing, snapshot: snap } }
+    updateLedger(next)
+    setSavedMsg(true)
+    setTimeout(() => setSavedMsg(false), 2000)
+  }
 
   return (
     <div className="px-4 pt-12 pb-6">
       {/* 標題列 + 退出按鈕 */}
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">績效 / XIRR</h1>
-        <button
-          onClick={onExitAdvanced}
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">每月記帳</h1>
+        <button onClick={onExitAdvanced}
           className="text-xs text-gray-500 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1.5 transition-colors"
         >退出進階模式</button>
       </div>
 
-      {/* 1. 績效摘要卡 */}
+      {/* 1. 月份選擇卡 */}
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">績效摘要</p>
-        <div className="space-y-2.5">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">目前總資產</span>
-            <span className="text-sm font-medium text-gray-900">
-              {total > 0 ? formatNumber(Math.round(total)) : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">累計淨入金</span>
-            <span className="text-sm font-medium text-gray-900">
-              {cashflows.length > 0 ? formatNumber(Math.round(netDeposit)) : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-gray-600">累計已實現損益</span>
-            <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
-              {cashflows.some(cf => cf.type === '已實現損益')
-                ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
-                : '--'}
-            </span>
-          </div>
-          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
-            <span className="text-sm font-semibold text-gray-700">XIRR（年化報酬）</span>
-            <span className={`text-base font-bold ${xirrColor}`}>{xirrStr}</span>
-          </div>
-        </div>
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">選擇月份</p>
+        <select
+          value={selectedMonth}
+          onChange={e => setSelectedMonth(e.target.value)}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-900 bg-white focus:outline-none focus:border-gray-400"
+        >
+          {MONTH_OPTIONS.map(o => (
+            <option key={o.key} value={o.key}>
+              {o.label}{ledger[o.key]?.cashflows?.length > 0 ? ` (${ledger[o.key].cashflows.length} 筆)` : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* 2. 資產快照卡 */}
+      {/* 2. 當月現金流紀錄卡 */}
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">資產快照（手動輸入）</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">現金流紀錄</p>
+          <button onClick={() => setShowForm(true)}
+            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors"
+          >+ 新增紀錄</button>
+        </div>
+        <CashflowList cashflows={cashflows} onDelete={handleDeleteCashflow} />
+      </div>
+
+      {/* 3. 月底資產快照卡 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">月底資產快照</p>
         <div className="space-y-3">
           {[
-            { label: '台股目前市值', field: 'twStockValue',     placeholder: '0' },
-            { label: '美股目前市值', field: 'usStockValue',     placeholder: '0' },
-            { label: '現金',         field: 'cashValue',         placeholder: '0' },
-            { label: '其他資產',     field: 'otherAssetsValue',  placeholder: '0（可選）' },
+            { label: '台股目前市值', field: 'twStockValue',    placeholder: '0' },
+            { label: '美股目前市值', field: 'usStockValue',    placeholder: '0' },
+            { label: '現金',         field: 'cashValue',        placeholder: '0' },
+            { label: '其他資產',     field: 'otherAssetsValue', placeholder: '0（可選）' },
           ].map(({ label, field, placeholder }) => (
             <div key={field} className="flex items-center gap-3">
               <label className="text-sm text-gray-600 w-32 shrink-0">{label}</label>
               <input
                 type="number"
-                value={snap[field]}
-                onChange={e => handleSnapChange(field, e.target.value)}
+                value={snapInputs[field]}
+                onChange={e => setSnapInputs(prev => ({ ...prev, [field]: e.target.value }))}
                 placeholder={placeholder}
                 min="0"
                 className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-400"
@@ -1554,71 +1617,160 @@ function PerformancePage({ onExitAdvanced }) {
             {total > 0 ? formatNumber(Math.round(total)) : '--'}
           </span>
         </div>
-      </div>
-
-      {/* 3. 現金流紀錄卡 */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wider">現金流紀錄</p>
-          <button
-            onClick={() => setShowForm(true)}
-            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors"
-          >+ 新增紀錄</button>
-        </div>
-
-        {cashflows.length === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-sm text-gray-400">尚無紀錄</p>
-            <p className="text-xs text-gray-300 mt-1">請新增入金 / 出金 / 已實現損益紀錄</p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-100">
-            {[...cashflows]
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map(cf => (
-                <div key={cf.id} className="flex items-center justify-between py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
-                        cf.type === '入金'       ? 'bg-blue-50 text-blue-600' :
-                        cf.type === '出金'       ? 'bg-gray-100 text-gray-600' :
-                        'bg-green-50 text-green-700'
-                      }`}>{cf.type}</span>
-                      <span className="text-xs text-gray-400">{cf.date}</span>
-                    </div>
-                    {cf.note && (
-                      <p className="text-xs text-gray-400 mt-0.5 truncate">{cf.note}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 ml-2 shrink-0">
-                    <span className={`text-sm font-medium tabular-nums ${
-                      cf.type === '入金' ? 'text-gray-600' :
-                      cf.type === '出金' ? 'text-green-600' : 'text-red-500'
-                    }`}>
-                      {cf.type === '入金' ? '-' : '+'}{formatNumber(Math.round(Math.abs(Number(cf.amount))))}
-                    </span>
-                    <button
-                      onClick={() => handleDeleteCashflow(cf.id)}
-                      className="text-gray-300 hover:text-red-400 transition-colors p-1"
-                      title="刪除"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6l-1 14H6L5 6"/>
-                        <path d="M10 11v6M14 11v6"/>
-                        <path d="M9 6V4h6v2"/>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              ))}
-          </div>
-        )}
+        <button
+          onClick={handleSaveSnapshot}
+          className={`mt-4 w-full py-2.5 rounded-xl text-sm font-medium transition-colors ${
+            savedMsg
+              ? 'bg-green-50 text-green-700 border border-green-200'
+              : 'bg-gray-900 text-white hover:bg-gray-700'
+          }`}
+        >
+          {savedMsg ? '已儲存' : '儲存本月資料'}
+        </button>
       </div>
 
       {showForm && (
         <CashflowForm onSave={handleAddCashflow} onCancel={() => setShowForm(false)} />
+      )}
+    </div>
+  )
+}
+
+// ─── 績效 / XIRR 統計頁（第 5 頁）────────────────────────────────────────────
+
+function PerformancePage({ onExitAdvanced }) {
+  // 每次 mount 都讀最新 ledger
+  const [ledger] = useState(loadLedger)
+
+  const allCashflows = useMemo(() =>
+    Object.values(ledger)
+      .flatMap(m => Array.isArray(m?.cashflows) ? m.cashflows : [])
+      .filter(cf => cf?.date && cf?.amount != null),
+    [ledger]
+  )
+
+  // 取最新有 snapshot 的月份作為期末資產
+  const latestSnap = useMemo(() =>
+    Object.entries(ledger)
+      .filter(([, m]) => m?.snapshot?.totalAssets > 0)
+      .sort(([a], [b]) => b.localeCompare(a))
+      [0]?.[1]?.snapshot ?? null,
+    [ledger]
+  )
+
+  const total = latestSnap?.totalAssets ?? 0
+
+  // ── XIRR：入金負數，出金/已實現損益正數，期末資產正數 ──
+  const xirr = useMemo(() => {
+    if (allCashflows.length === 0 || total <= 0) return null
+    const endDate = latestSnap?.savedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10)
+    const payments = [
+      ...allCashflows.map(cf => ({
+        date:   cf.date,
+        amount: cf.type === '入金'
+          ? -Math.abs(Number(cf.amount))
+          :  Math.abs(Number(cf.amount)),
+      })),
+      { date: endDate, amount: total },
+    ]
+    return calculateXIRR(payments)
+  }, [allCashflows, total, latestSnap])
+
+  // ── 摘要計算 ──
+  const netDeposit = allCashflows.reduce((sum, cf) => {
+    if (cf.type === '入金') return sum + Math.abs(Number(cf.amount))
+    if (cf.type === '出金') return sum - Math.abs(Number(cf.amount))
+    return sum
+  }, 0)
+
+  const realizedPnL = allCashflows
+    .filter(cf => cf.type === '已實現損益')
+    .reduce((sum, cf) => sum + Number(cf.amount), 0)
+
+  const xirrStr   = xirr !== null ? `${(xirr * 100).toFixed(2)}%` : '--'
+  const xirrColor = xirr !== null ? (xirr >= 0 ? 'text-red-500' : 'text-green-600') : 'text-gray-900'
+  const hasRealPnL = allCashflows.some(cf => cf.type === '已實現損益')
+
+  return (
+    <div className="px-4 pt-12 pb-6">
+      {/* 標題列 + 退出按鈕 */}
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">績效 / XIRR</h1>
+        <button onClick={onExitAdvanced}
+          className="text-xs text-gray-500 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1.5 transition-colors"
+        >退出進階模式</button>
+      </div>
+
+      {/* 績效摘要卡 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">績效摘要</p>
+        <div className="space-y-2.5">
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">目前總資產</span>
+            <span className="text-sm font-medium text-gray-900">
+              {total > 0 ? formatNumber(Math.round(total)) : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">累計淨入金</span>
+            <span className="text-sm font-medium text-gray-900">
+              {allCashflows.length > 0 ? formatNumber(Math.round(netDeposit)) : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">累計已實現損益</span>
+            <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
+              {hasRealPnL
+                ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
+                : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+            <span className="text-sm font-semibold text-gray-700">XIRR（年化報酬）</span>
+            <span className={`text-base font-bold ${xirrColor}`}>{xirrStr}</span>
+          </div>
+        </div>
+        {latestSnap && (
+          <p className="text-[11px] text-gray-300 mt-3">
+            期末資產來源：{latestSnap.savedAt?.slice(0, 10) ?? '--'}
+          </p>
+        )}
+      </div>
+
+      {/* 資料來源說明 */}
+      {allCashflows.length === 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center py-8">
+          <p className="text-sm text-gray-400">尚無資料</p>
+          <p className="text-xs text-gray-300 mt-1">請先在「記帳」頁新增現金流並儲存月底資產</p>
+        </div>
+      )}
+
+      {/* 各月摘要 */}
+      {Object.keys(ledger).length > 0 && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">各月紀錄</p>
+          <div className="space-y-2">
+            {Object.entries(ledger)
+              .sort(([a], [b]) => b.localeCompare(a))
+              .map(([month, data]) => {
+                const cfs = Array.isArray(data?.cashflows) ? data.cashflows : []
+                const snap = data?.snapshot
+                return (
+                  <div key={month} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
+                    <span className="text-sm text-gray-700">{month.replace('-', '/')}</span>
+                    <div className="text-right">
+                      <span className="text-xs text-gray-400">{cfs.length} 筆紀錄</span>
+                      {snap && (
+                        <span className="text-xs text-gray-500 ml-2">
+                          總資產 {formatNumber(Math.round(snap.totalAssets))}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1655,7 +1807,7 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
   const advancedTabs = [
     {
       id: 'exposure',
-      label: '曝險計算',
+      label: '曝險',
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1666,8 +1818,22 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
       ),
     },
     {
+      id: 'ledger',
+      label: '記帳',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+          <polyline points="10 9 9 9 8 9"/>
+        </svg>
+      ),
+    },
+    {
       id: 'performance',
-      label: '績效/XIRR',
+      label: '績效',
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -1724,7 +1890,7 @@ export default function App() {
   })
   const [advancedTab, setAdvancedTab] = useState(() => {
     const saved = localStorage.getItem(ADVANCED_TAB_KEY)
-    return (saved === 'exposure' || saved === 'performance') ? saved : 'exposure'
+    return (saved === 'exposure' || saved === 'ledger' || saved === 'performance') ? saved : 'exposure'
   })
   const activePage = advancedMode ? advancedTab : normalTab
   const [toast, setToast] = useState('')
@@ -1845,7 +2011,10 @@ export default function App() {
       {/* ── 曝險計算頁 ── */}
       {activePage === 'exposure' && <ExposurePage holdings={holdings} onExitAdvanced={handleExitAdvanced} />}
 
-      {/* ── 績效 / XIRR 頁 ── */}
+      {/* ── 每月記帳頁 ── */}
+      {activePage === 'ledger' && <LedgerPage onExitAdvanced={handleExitAdvanced} />}
+
+      {/* ── 績效 / XIRR 統計頁 ── */}
       {activePage === 'performance' && <PerformancePage onExitAdvanced={handleExitAdvanced} />}
 
       {/* ── 新增 / 編輯 Modal ── */}
