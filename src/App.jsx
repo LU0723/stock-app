@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { calculateXIRR } from './utils/xirr'
 import {
   DndContext, closestCenter,
   PointerSensor, TouchSensor,
@@ -115,6 +116,9 @@ function loadCashflows() {
     if (saved) return JSON.parse(saved)
   } catch {}
   return []
+}
+function saveCashflows(list) {
+  localStorage.setItem(PERF_CASHFLOWS_KEY, JSON.stringify(list))
 }
 
 // ─── 共用股價 API ─────────────────────────────────────────────────────────────
@@ -1324,11 +1328,107 @@ function ExposurePage({ holdings, onExitAdvanced }) {
   )
 }
 
+// ─── 現金流新增表單 ───────────────────────────────────────────────────────────
+
+function CashflowForm({ onSave, onCancel }) {
+  const today = new Date().toISOString().split('T')[0]
+  const [date,   setDate]   = useState(today)
+  const [type,   setType]   = useState('入金')
+  const [amount, setAmount] = useState('')
+  const [note,   setNote]   = useState('')
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const amt = parseFloat(amount)
+    if (!date || isNaN(amt) || amt <= 0) return
+    onSave({
+      id:     `cf-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      date,
+      type,
+      amount: amt,
+      note:   note.trim(),
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end">
+      <div className="w-full max-w-md mx-auto bg-[#1c1c1c] rounded-t-2xl border-t border-[#2a2a2a] p-5">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-white">新增現金流紀錄</h2>
+          <button onClick={onCancel} className="text-white p-1">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="text-xs text-white mb-1 block">日期</label>
+            <input
+              type="date"
+              value={date}
+              onChange={e => setDate(e.target.value)}
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">類型</label>
+            <select
+              value={type}
+              onChange={e => setType(e.target.value)}
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]"
+            >
+              <option value="入金">入金（投入資金）</option>
+              <option value="出金">出金（提出資金）</option>
+              <option value="已實現損益">已實現損益</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">金額（正整數）</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              placeholder="例：100000"
+              min="0.01"
+              step="0.01"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">備註（可選）</label>
+            <input
+              type="text"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="例：定期定額、年終獎金"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]"
+            />
+          </div>
+          <div className="flex gap-2 mt-1">
+            <button type="button" onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl border border-[#333] text-white text-sm">取消</button>
+            <button type="submit" disabled={!date || !amount}
+              className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-medium disabled:opacity-50">新增</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ─── 績效 / XIRR 頁 ───────────────────────────────────────────────────────────
 
 function PerformancePage({ onExitAdvanced }) {
-  const [snap, setSnap] = useState(loadSnapshot)
-  const cashflows = loadCashflows()
+  const [snap,      setSnap]      = useState(loadSnapshot)
+  const [cashflows, setCashflows] = useState(loadCashflows)
+  const [showForm,  setShowForm]  = useState(false)
+
+  const tw    = parseFloat(snap.twStockValue)     || 0
+  const us    = parseFloat(snap.usStockValue)     || 0
+  const cash  = parseFloat(snap.cashValue)        || 0
+  const other = parseFloat(snap.otherAssetsValue) || 0
+  const total = tw + us + cash + other
 
   function handleSnapChange(field, value) {
     const next = { ...snap, [field]: value }
@@ -1336,11 +1436,52 @@ function PerformancePage({ onExitAdvanced }) {
     saveSnapshot(next)
   }
 
-  const tw    = parseFloat(snap.twStockValue)    || 0
-  const us    = parseFloat(snap.usStockValue)    || 0
-  const cash  = parseFloat(snap.cashValue)       || 0
-  const other = parseFloat(snap.otherAssetsValue)|| 0
-  const total = tw + us + cash + other
+  function handleAddCashflow(cf) {
+    const next = [...cashflows, cf].sort((a, b) => a.date.localeCompare(b.date))
+    setCashflows(next)
+    saveCashflows(next)
+    setShowForm(false)
+  }
+
+  function handleDeleteCashflow(id) {
+    if (!window.confirm('確定刪除這筆紀錄？')) return
+    const next = cashflows.filter(cf => cf.id !== id)
+    setCashflows(next)
+    saveCashflows(next)
+  }
+
+  // ── XIRR 計算 ──
+  // 入金 → 負數（資金流出），出金 / 已實現損益 → 正數，期末總資產 → 正數
+  const xirr = useMemo(() => {
+    if (cashflows.length === 0 || total <= 0) return null
+    const today = new Date().toISOString().split('T')[0]
+    const payments = [
+      ...cashflows.map(cf => ({
+        date:   cf.date,
+        amount: cf.type === '入金'
+          ? -Math.abs(Number(cf.amount))
+          :  Math.abs(Number(cf.amount)),
+      })),
+      { date: today, amount: total },
+    ]
+    return calculateXIRR(payments)
+  }, [cashflows, total])
+
+  // ── 摘要計算 ──
+  const netDeposit = cashflows.reduce((sum, cf) => {
+    if (cf.type === '入金')  return sum + Math.abs(Number(cf.amount))
+    if (cf.type === '出金')  return sum - Math.abs(Number(cf.amount))
+    return sum
+  }, 0)
+
+  const realizedPnL = cashflows
+    .filter(cf => cf.type === '已實現損益')
+    .reduce((sum, cf) => sum + Number(cf.amount), 0)
+
+  const xirrStr = xirr !== null ? `${(xirr * 100).toFixed(2)}%` : '--'
+  const xirrColor = xirr !== null
+    ? (xirr >= 0 ? 'text-red-500' : 'text-green-600')
+    : 'text-gray-900'
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -1357,19 +1498,30 @@ function PerformancePage({ onExitAdvanced }) {
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
         <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">績效摘要</p>
         <div className="space-y-2.5">
-          {[
-            ['目前總資產',     total > 0 ? formatNumber(Math.round(total)) : '--'],
-            ['累計淨入金',     '--'],
-            ['累計已實現損益', '--'],
-            ['XIRR',          '--'],
-            ['近 30 天報酬',  '--'],
-            ['年化報酬率',    '--'],
-          ].map(([label, val]) => (
-            <div key={label} className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">{label}</span>
-              <span className="text-sm font-medium text-gray-900">{val}</span>
-            </div>
-          ))}
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">目前總資產</span>
+            <span className="text-sm font-medium text-gray-900">
+              {total > 0 ? formatNumber(Math.round(total)) : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">累計淨入金</span>
+            <span className="text-sm font-medium text-gray-900">
+              {cashflows.length > 0 ? formatNumber(Math.round(netDeposit)) : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-sm text-gray-600">累計已實現損益</span>
+            <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
+              {cashflows.some(cf => cf.type === '已實現損益')
+                ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
+                : '--'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center pt-2 border-t border-gray-100">
+            <span className="text-sm font-semibold text-gray-700">XIRR（年化報酬）</span>
+            <span className={`text-base font-bold ${xirrColor}`}>{xirrStr}</span>
+          </div>
         </div>
       </div>
 
@@ -1378,10 +1530,10 @@ function PerformancePage({ onExitAdvanced }) {
         <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">資產快照（手動輸入）</p>
         <div className="space-y-3">
           {[
-            { label: '台股目前市值', field: 'twStockValue', placeholder: '0' },
-            { label: '美股目前市值', field: 'usStockValue', placeholder: '0' },
-            { label: '現金',         field: 'cashValue',    placeholder: '0' },
-            { label: '其他資產',     field: 'otherAssetsValue', placeholder: '0（可選）' },
+            { label: '台股目前市值', field: 'twStockValue',     placeholder: '0' },
+            { label: '美股目前市值', field: 'usStockValue',     placeholder: '0' },
+            { label: '現金',         field: 'cashValue',         placeholder: '0' },
+            { label: '其他資產',     field: 'otherAssetsValue',  placeholder: '0（可選）' },
           ].map(({ label, field, placeholder }) => (
             <div key={field} className="flex items-center gap-3">
               <label className="text-sm text-gray-600 w-32 shrink-0">{label}</label>
@@ -1406,28 +1558,68 @@ function PerformancePage({ onExitAdvanced }) {
 
       {/* 3. 現金流紀錄卡 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-        <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">現金流紀錄</p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">現金流紀錄</p>
+          <button
+            onClick={() => setShowForm(true)}
+            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors"
+          >+ 新增紀錄</button>
+        </div>
+
         {cashflows.length === 0 ? (
           <div className="py-6 text-center">
             <p className="text-sm text-gray-400">尚無紀錄</p>
             <p className="text-xs text-gray-300 mt-1">請新增入金 / 出金 / 已實現損益紀錄</p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {cashflows.map(cf => (
-              <div key={cf.id} className="flex justify-between items-center py-1.5">
-                <div>
-                  <p className="text-sm text-gray-800">{cf.type}</p>
-                  <p className="text-xs text-gray-400">{cf.date}{cf.note ? ` · ${cf.note}` : ''}</p>
+          <div className="divide-y divide-gray-100">
+            {[...cashflows]
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map(cf => (
+                <div key={cf.id} className="flex items-center justify-between py-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[11px] px-1.5 py-0.5 rounded font-medium ${
+                        cf.type === '入金'       ? 'bg-blue-50 text-blue-600' :
+                        cf.type === '出金'       ? 'bg-gray-100 text-gray-600' :
+                        'bg-green-50 text-green-700'
+                      }`}>{cf.type}</span>
+                      <span className="text-xs text-gray-400">{cf.date}</span>
+                    </div>
+                    {cf.note && (
+                      <p className="text-xs text-gray-400 mt-0.5 truncate">{cf.note}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 ml-2 shrink-0">
+                    <span className={`text-sm font-medium tabular-nums ${
+                      cf.type === '入金' ? 'text-gray-600' :
+                      cf.type === '出金' ? 'text-green-600' : 'text-red-500'
+                    }`}>
+                      {cf.type === '入金' ? '-' : '+'}{formatNumber(Math.round(Math.abs(Number(cf.amount))))}
+                    </span>
+                    <button
+                      onClick={() => handleDeleteCashflow(cf.id)}
+                      className="text-gray-300 hover:text-red-400 transition-colors p-1"
+                      title="刪除"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6l-1 14H6L5 6"/>
+                        <path d="M10 11v6M14 11v6"/>
+                        <path d="M9 6V4h6v2"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
-                <span className={`text-sm font-medium ${cf.amount >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                  {cf.amount >= 0 ? '+' : ''}{formatNumber(cf.amount)}
-                </span>
-              </div>
-            ))}
+              ))}
           </div>
         )}
       </div>
+
+      {showForm && (
+        <CashflowForm onSave={handleAddCashflow} onCancel={() => setShowForm(false)} />
+      )}
     </div>
   )
 }
