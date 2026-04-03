@@ -343,6 +343,10 @@ function formatNumber(n) {
   return n.toLocaleString('zh-TW')
 }
 
+function fmtUsd(n) {
+  return Number(n).toLocaleString('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function twColor(value) {
   if (value > 0) return 'text-red-500'
   if (value < 0) return 'text-green-600'
@@ -1568,7 +1572,9 @@ function CashflowList({ cashflows, onDelete }) {
               cf.type === '入金' ? 'text-gray-600' :
               cf.type === '出金' ? 'text-green-600' : 'text-red-500'
             }`}>
-              {cf.type === '入金' ? '-' : '+'}{formatNumber(Math.round(Math.abs(Number(cf.amount))))}
+              {cf.type === '入金' ? '-' : '+'}{cf.ledgerType === 'us'
+                ? fmtUsd(Math.abs(Number(cf.amount)))
+                : formatNumber(Math.round(Math.abs(Number(cf.amount))))}
             </span>
             {onDelete && (
               <button
@@ -1773,7 +1779,7 @@ function LedgerPage({ onExitAdvanced }) {
             <div className="flex justify-between items-center pt-2 border-t border-gray-100">
               <span className="text-sm text-gray-600">美股總資產（USD）</span>
               <span className="text-sm font-semibold text-gray-900">
-                {usTotal > 0 ? formatNumber(Math.round(usTotal)) : '--'}
+                {usTotal > 0 ? fmtUsd(usTotal) : '--'}
               </span>
             </div>
           </div>
@@ -1841,7 +1847,7 @@ function calcLedgerStats(cashflows, totalAssets, savedAt) {
   return { netDeposit, realizedPnL, xirr }
 }
 
-function PerfCard({ title, accentClass, cashflows, totalAssets, savedAt }) {
+function PerfCard({ title, accentClass, cashflows, totalAssets, savedAt, usd = false }) {
   const hasCfs = cashflows.length > 0
   const { netDeposit, realizedPnL, xirr } = useMemo(
     () => calcLedgerStats(cashflows, totalAssets, savedAt),
@@ -1858,20 +1864,20 @@ function PerfCard({ title, accentClass, cashflows, totalAssets, savedAt }) {
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">目前總資產</span>
           <span className="text-sm font-medium text-gray-900">
-            {totalAssets > 0 ? formatNumber(Math.round(totalAssets)) : '--'}
+            {totalAssets > 0 ? (usd ? fmtUsd(totalAssets) : formatNumber(Math.round(totalAssets))) : '--'}
           </span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">累計淨入金</span>
           <span className="text-sm font-medium text-gray-900">
-            {hasCfs ? formatNumber(Math.round(netDeposit)) : '--'}
+            {hasCfs ? (usd ? fmtUsd(netDeposit) : formatNumber(Math.round(netDeposit))) : '--'}
           </span>
         </div>
         <div className="flex justify-between items-center">
           <span className="text-sm text-gray-600">累計已實現損益</span>
           <span className={`text-sm font-medium ${realizedPnL > 0 ? 'text-red-500' : realizedPnL < 0 ? 'text-green-600' : 'text-gray-900'}`}>
             {hasRealPnL
-              ? (realizedPnL >= 0 ? '+' : '') + formatNumber(Math.round(realizedPnL))
+              ? (realizedPnL >= 0 ? '+' : '') + (usd ? fmtUsd(realizedPnL) : formatNumber(Math.round(realizedPnL)))
               : '--'}
           </span>
         </div>
@@ -2036,6 +2042,7 @@ function PerformancePage({ onExitAdvanced }) {
             cashflows={usCashflows}
             totalAssets={latestUsSnap?.us?.totalAssets ?? 0}
             savedAt={latestUsSnap?.savedAt ?? null}
+            usd
           />
           <MonthlyReturnCard
             title="美股月度報酬（USD）"
@@ -2079,7 +2086,7 @@ function PerformancePage({ onExitAdvanced }) {
                         )}
                         {usT > 0 && (
                           <span className="text-[11px] text-orange-500">
-                            美股 {formatNumber(Math.round(usT))}
+                            美股 {fmtUsd(usT)}
                             {usR !== undefined && (
                               <span className={`ml-1 ${returnColor(usR)}`}>
                                 ({formatReturnRate(usR)})
