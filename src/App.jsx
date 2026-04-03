@@ -29,7 +29,6 @@ const INDEX_HIGH_KEY      = 'twii-year-high'
 const TARGET_EXPOSURE_KEY = 'exposure-target-lev'
 const ADVANCED_MODE_KEY   = 'advanced-mode'
 const YEAR_HIGH_CACHE_KEY = 'twii-year-high-cache'  // { date, value }，每日快取
-const PERF_SNAPSHOT_KEY   = 'performance-snapshot'
 const PERF_CASHFLOWS_KEY  = 'performance-cashflows'
 const NORMAL_TAB_KEY      = 'normalTab'
 const ADVANCED_TAB_KEY    = 'advancedTab'
@@ -1423,9 +1422,16 @@ function ExposurePage({ holdings, onExitAdvanced }) {
 
 // ─── 現金流新增表單（兩頁共用）────────────────────────────────────────────────
 
-function CashflowForm({ onSave, onCancel }) {
-  const today = new Date().toISOString().split('T')[0]
-  const [date,       setDate]       = useState(today)
+function CashflowForm({ onSave, onCancel, selectedMonth }) {
+  // 限制日期在選定月份內
+  const [selYear, selMon] = (selectedMonth ?? '').split('-').map(Number)
+  const minDate   = selectedMonth ? `${selectedMonth}-01` : ''
+  const lastDay   = selectedMonth ? new Date(selYear, selMon, 0).getDate() : 31
+  const maxDate   = selectedMonth ? `${selectedMonth}-${String(lastDay).padStart(2, '0')}` : ''
+  // 預設日期：若今天在選定月份內則用今天，否則用月份第一天
+  const today     = new Date().toISOString().split('T')[0]
+  const initDate  = (minDate && maxDate && today >= minDate && today <= maxDate) ? today : (minDate || today)
+  const [date,       setDate]       = useState(initDate)
   const [type,       setType]       = useState('入金')
   const [amount,     setAmount]     = useState('')
   const [note,       setNote]       = useState('')
@@ -1462,6 +1468,8 @@ function CashflowForm({ onSave, onCancel }) {
             <input
               type="date"
               value={date}
+              min={minDate || undefined}
+              max={maxDate || undefined}
               onChange={e => setDate(e.target.value)}
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]"
             />
@@ -1540,7 +1548,7 @@ function CashflowList({ cashflows, onDelete }) {
   return (
     <div className="divide-y divide-gray-100">
       {[...cashflows].sort((a, b) => b.date.localeCompare(a.date)).map(cf => (
-        <div key={cf.id} className="flex items-center justify-between py-3">
+        <div key={cf.id} className="flex items-center justify-between py-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
@@ -1706,18 +1714,7 @@ function LedgerPage({ onExitAdvanced }) {
         </select>
       </div>
 
-      {/* 2. 當月現金流紀錄卡 */}
-      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs text-gray-500 uppercase tracking-wider">現金流紀錄</p>
-          <button onClick={() => setShowForm(true)}
-            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors"
-          >+ 新增紀錄</button>
-        </div>
-        <CashflowList cashflows={cashflows} onDelete={handleDeleteCashflow} />
-      </div>
-
-      {/* 3. 月底資產快照卡 */}
+      {/* 2. 月底資產快照卡 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
         <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">月底資產快照</p>
 
@@ -1794,8 +1791,23 @@ function LedgerPage({ onExitAdvanced }) {
         </button>
       </div>
 
+      {/* 3. 現金流紀錄卡（移至快照下方、縮小版面）*/}
+      <div className="bg-white rounded-2xl px-4 py-3 mt-4 shadow-sm border border-gray-100">
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">現金流紀錄</p>
+          <button onClick={() => setShowForm(true)}
+            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors"
+          >+ 新增紀錄</button>
+        </div>
+        <CashflowList cashflows={cashflows} onDelete={handleDeleteCashflow} />
+      </div>
+
       {showForm && (
-        <CashflowForm onSave={handleAddCashflow} onCancel={() => setShowForm(false)} />
+        <CashflowForm
+          onSave={handleAddCashflow}
+          onCancel={() => setShowForm(false)}
+          selectedMonth={selectedMonth}
+        />
       )}
     </div>
   )
