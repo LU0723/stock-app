@@ -1044,19 +1044,43 @@ function SortableWatchlistRow({ item, onDelete }) {
 
 // ─── 備份 / 還原 ─────────────────────────────────────────────────────────────
 
+// 驗證 performanceMonthlyLedger 格式
+// 回傳 true = 合法（或空物件），false = 格式有問題
+function isValidLedger(ledger) {
+  if (typeof ledger !== 'object' || ledger === null || Array.isArray(ledger)) return false
+  const monthRe = /^\d{4}-\d{2}$/
+  for (const [key, val] of Object.entries(ledger)) {
+    if (!monthRe.test(key)) return false
+    if (typeof val !== 'object' || val === null) return false
+    if (!('cashflows' in val) || !('snapshot' in val)) return false
+    if (!Array.isArray(val.cashflows)) return false
+  }
+  return true
+}
+
 function BackupModal({ onClose }) {
   const fileInputRef = useRef(null)
   const [status, setStatus] = useState('')
-  const isError = status.includes('錯誤')
+  const isError = status.startsWith('錯誤')
 
   function exportBackup() {
-    const today = new Date().toISOString().split('T')[0]
+    const now    = new Date()
+    const today  = now.toISOString().split('T')[0]
+
+    // 讀取 performanceMonthlyLedger（不存在時回傳空物件，不 crash）
+    let ledger = {}
+    try {
+      const raw = localStorage.getItem(MONTHLY_LEDGER_KEY)
+      if (raw) ledger = JSON.parse(raw)
+    } catch {}
+
     const backup = {
-      version: 1,
-      exportedAt: today,
-      holdings:   JSON.parse(localStorage.getItem('stock-holdings')      || '[]'),
-      watchlist:  JSON.parse(localStorage.getItem('watchlist-stocks')     || '[]'),
-      sortLocked: localStorage.getItem('watchlist-sort-locked') ?? 'true',
+      version:    2,
+      exportedAt: now.toISOString(),
+      holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY)     || '[]'),
+      watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]'),
+      sortLocked: localStorage.getItem(SORT_LOCK_KEY) ?? 'true',
+      performanceMonthlyLedger: ledger,
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url  = URL.createObjectURL(blob)
@@ -1075,19 +1099,35 @@ function BackupModal({ onClose }) {
     reader.onload = ev => {
       try {
         const data = JSON.parse(ev.target.result)
+
+        // 基本欄位驗證（與舊版相容：holdings / watchlist 必須為陣列）
         if (!Array.isArray(data.holdings) || !Array.isArray(data.watchlist)) {
-          setStatus('備份檔格式錯誤')
+          setStatus('錯誤：備份檔格式不正確（holdings / watchlist 欄位異常）')
           return
         }
-        localStorage.setItem('stock-holdings',      JSON.stringify(data.holdings))
-        localStorage.setItem('watchlist-stocks',     JSON.stringify(data.watchlist))
+
+        // 還原基本資料
+        localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings))
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist))
         if (data.sortLocked !== undefined) {
-          localStorage.setItem('watchlist-sort-locked', String(data.sortLocked))
+          localStorage.setItem(SORT_LOCK_KEY, String(data.sortLocked))
         }
+
+        // 還原進階記帳資料（v2+ 才有；舊版備份缺少此欄位時直接跳過）
+        if (data.performanceMonthlyLedger !== undefined) {
+          if (!isValidLedger(data.performanceMonthlyLedger)) {
+            // 格式有問題：不覆蓋現有資料，但其他資料已還原
+            setStatus('持股 / 自選股已還原，但進階記帳格式異常，略過還原。即將重新載入...')
+            setTimeout(() => window.location.reload(), 1500)
+            return
+          }
+          localStorage.setItem(MONTHLY_LEDGER_KEY, JSON.stringify(data.performanceMonthlyLedger))
+        }
+
         setStatus('資料已恢復，即將重新載入...')
         setTimeout(() => window.location.reload(), 900)
       } catch {
-        setStatus('備份檔格式錯誤')
+        setStatus('錯誤：無法解析備份檔，請確認檔案格式正確')
       }
     }
     reader.readAsText(file)
@@ -1139,7 +1179,7 @@ function BackupModal({ onClose }) {
         </div>
 
         <p className="text-xs text-gray-400 mt-4 text-center">
-          備份包含持股、自選股資料
+          備份包含持股 / 自選股 / 進階記帳資料
         </p>
       </div>
     </div>
