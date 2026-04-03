@@ -1730,7 +1730,7 @@ function LedgerPage({ onExitAdvanced }) {
           <div className="space-y-2.5">
             {[
               { label: '台股目前市值', field: 'stockValue' },
-              { label: '台幣現金',     field: 'cashValue'  },
+              { label: '證券戶現金',   field: 'cashValue'  },
             ].map(({ label, field }) => (
               <div key={field} className="flex items-center gap-3">
                 <label className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
