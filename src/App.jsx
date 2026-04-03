@@ -1967,14 +1967,21 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  // 台股 cashflows（無 ledgerType 的舊資料視為台股）
+  // 台股 cashflows：只計入已有台股快照的月份（避免未結帳月份扭曲累計淨入金與XIRR）
   const twCashflows = useMemo(() =>
-    allCashflows.filter(cf => !cf.ledgerType || cf.ledgerType === 'tw'),
-    [allCashflows]
+    Object.entries(ledger)
+      .filter(([, m]) => (m?.snapshot?.tw?.totalAssets ?? 0) > 0)
+      .flatMap(([, m]) => Array.isArray(m?.cashflows) ? m.cashflows : [])
+      .filter(cf => cf?.date && cf?.amount != null && (!cf.ledgerType || cf.ledgerType === 'tw')),
+    [ledger]
   )
+  // 美股 cashflows：只計入已有美股快照的月份
   const usCashflows = useMemo(() =>
-    allCashflows.filter(cf => cf.ledgerType === 'us'),
-    [allCashflows]
+    Object.entries(ledger)
+      .filter(([, m]) => (m?.snapshot?.us?.totalAssets ?? 0) > 0)
+      .flatMap(([, m]) => Array.isArray(m?.cashflows) ? m.cashflows : [])
+      .filter(cf => cf?.date && cf?.amount != null && cf.ledgerType === 'us'),
+    [ledger]
   )
 
   // 取各帳本最新 snapshot
