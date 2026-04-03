@@ -1908,6 +1908,7 @@ function returnColor(r) {
 }
 
 function MonthlyReturnCard({ title, accentClass, monthlyReturns }) {
+  const [open, setOpen] = useState(true)
   const cumulativeReturn = useMemo(
     () => getCumulativeReturn(monthlyReturns),
     [monthlyReturns]
@@ -1920,29 +1921,35 @@ function MonthlyReturnCard({ title, accentClass, monthlyReturns }) {
 
   return (
     <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-      {/* 標題 + 累積報酬 */}
-      <div className="flex items-center justify-between mb-3">
+      {/* 標題 + 累積報酬 + 收合箭頭 */}
+      <button
+        className="w-full flex items-center justify-between"
+        onClick={() => setOpen(o => !o)}
+      >
         <p className={`text-xs font-semibold ${accentClass}`}>{title}</p>
         <div className="flex items-center gap-1.5">
           <span className="text-[11px] text-gray-400">累積報酬</span>
           <span className={`text-sm font-bold ${cumColor}`}>{cumStr}</span>
+          <span className="text-gray-400 text-xs ml-1">{open ? '▲' : '▼'}</span>
         </div>
-      </div>
+      </button>
 
       {/* 各月列表（最新在前）*/}
-      <div className="space-y-1">
-        {[...monthlyReturns].reverse().map(({ month, returnRate }) => {
-          const [y, m] = month.split('-')
-          return (
-            <div key={month} className="flex items-center justify-between py-0.5">
-              <span className="text-sm text-gray-600">{y}/{m}</span>
-              <span className={`text-sm font-medium ${returnColor(returnRate)}`}>
-                {formatReturnRate(returnRate)}
-              </span>
-            </div>
-          )
-        })}
-      </div>
+      {open && (
+        <div className="space-y-1 mt-3">
+          {[...monthlyReturns].reverse().map(({ month, returnRate }) => {
+            const [y, m] = month.split('-')
+            return (
+              <div key={month} className="flex items-center justify-between py-0.5">
+                <span className="text-sm text-gray-600">{y}/{m}</span>
+                <span className={`text-sm font-medium ${returnColor(returnRate)}`}>
+                  {formatReturnRate(returnRate)}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -1985,6 +1992,8 @@ function PerformancePage({ onExitAdvanced }) {
       [0]?.[1]?.snapshot ?? null,
     [ledger]
   )
+
+  const [logsOpen, setLogsOpen] = useState(true)
 
   // 月度報酬（台股 / 美股各自獨立）
   const twMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'tw'), [ledger])
@@ -2055,8 +2064,14 @@ function PerformancePage({ onExitAdvanced }) {
       {/* 各月紀錄 */}
       {Object.keys(ledger).length > 0 && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-3">各月紀錄</p>
-          <div className="space-y-2">
+          <button
+            className="w-full flex items-center justify-between"
+            onClick={() => setLogsOpen(o => !o)}
+          >
+            <p className="text-xs text-gray-500 uppercase tracking-wider">各月紀錄</p>
+            <span className="text-gray-400 text-xs">{logsOpen ? '▲' : '▼'}</span>
+          </button>
+          {logsOpen && <div className="space-y-2 mt-3">
             {Object.entries(ledger)
               .sort(([a], [b]) => b.localeCompare(a))
               .map(([month, data]) => {
@@ -2099,7 +2114,7 @@ function PerformancePage({ onExitAdvanced }) {
                   </div>
                 )
               })}
-          </div>
+          </div>}
         </div>
       )}
     </div>
