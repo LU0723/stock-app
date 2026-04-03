@@ -1584,15 +1584,30 @@ function CashflowList({ cashflows, onDelete }) {
   )
 }
 
+function getCurrentMonthKey() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
 function LedgerPage({ onExitAdvanced }) {
   const [ledger,        setLedger]        = useState(loadLedger)
-  const [selectedMonth, setSelectedMonth] = useState(MONTH_OPTIONS[0].key)
+  const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey)
   const [snapInputs,    setSnapInputs]    = useState({
     tw: { stockValue: '', cashValue: '' },
     us: { schwabValue: '', etoroValue: '', futoValue: '' },
   })
   const [showForm, setShowForm] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+
+  // mount 時：若本月份尚未建立，自動補建空資料（只執行一次）
+  useEffect(() => {
+    const currentMonth = getCurrentMonthKey()
+    if (!ledger[currentMonth]) {
+      const next = { ...ledger, [currentMonth]: { cashflows: [], snapshot: null } }
+      setLedger(next)
+      saveLedger(next)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 月份切換時，從 ledger 讀入該月快照
   useEffect(() => {
