@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { calculateXIRR } from './utils/xirr'
+import { getMonthlyReturns, getCumulativeReturn } from './utils/performance'
 import {
   DndContext, closestCenter,
   PointerSensor, TouchSensor,
@@ -1819,6 +1820,62 @@ function PerfCard({ title, accentClass, cashflows, totalAssets, savedAt }) {
   )
 }
 
+// ─── 月度績效卡 ───────────────────────────────────────────────────────────────
+
+function formatReturnRate(r) {
+  if (r === null || r === undefined) return '--'
+  return `${r >= 0 ? '+' : ''}${(r * 100).toFixed(2)}%`
+}
+
+function returnColor(r) {
+  if (r === null || r === undefined) return 'text-gray-300'
+  if (r > 0) return 'text-red-500'
+  if (r < 0) return 'text-green-600'
+  return 'text-gray-500'
+}
+
+function MonthlyReturnCard({ title, accentClass, monthlyReturns }) {
+  const cumulativeReturn = useMemo(
+    () => getCumulativeReturn(monthlyReturns),
+    [monthlyReturns]
+  )
+
+  if (monthlyReturns.length === 0) return null
+
+  const cumStr   = formatReturnRate(cumulativeReturn)
+  const cumColor = returnColor(cumulativeReturn)
+
+  return (
+    <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+      {/* 標題 + 累積報酬 */}
+      <div className="flex items-center justify-between mb-3">
+        <p className={`text-xs font-semibold ${accentClass}`}>{title}</p>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] text-gray-400">累積報酬</span>
+          <span className={`text-sm font-bold ${cumColor}`}>{cumStr}</span>
+        </div>
+      </div>
+
+      {/* 各月列表（最新在前）*/}
+      <div className="space-y-1">
+        {[...monthlyReturns].reverse().map(({ month, returnRate }) => {
+          const [y, m] = month.split('-')
+          return (
+            <div key={month} className="flex items-center justify-between py-0.5">
+              <span className="text-sm text-gray-600">{y}/{m}</span>
+              <span className={`text-sm font-medium ${returnColor(returnRate)}`}>
+                {formatReturnRate(returnRate)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── 績效頁主體 ───────────────────────────────────────────────────────────────
+
 function PerformancePage({ onExitAdvanced }) {
   // 每次 mount 都讀最新 ledger
   const [ledger] = useState(loadLedger)
@@ -1856,7 +1913,21 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  const hasAnyData = allCashflows.length > 0
+  // 月度報酬（台股 / 美股各自獨立）
+  const twMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'tw'), [ledger])
+  const usMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'us'), [ledger])
+
+  // 建立 month → returnRate 查詢表，供各月紀錄列使用
+  const twReturnMap = useMemo(() =>
+    Object.fromEntries(twMonthlyReturns.map(m => [m.month, m.returnRate])),
+    [twMonthlyReturns]
+  )
+  const usReturnMap = useMemo(() =>
+    Object.fromEntries(usMonthlyReturns.map(m => [m.month, m.returnRate])),
+    [usMonthlyReturns]
+  )
+
+  const hasAnyData = allCashflows.length > 0 || Object.keys(ledger).length > 0
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -1877,7 +1948,7 @@ function PerformancePage({ onExitAdvanced }) {
 
       {hasAnyData && (
         <>
-          {/* 台股績效（TWD）*/}
+          {/* ── 台股區塊（TWD）── */}
           <PerfCard
             title="台股績效（TWD）"
             accentClass="text-sky-600"
@@ -1885,14 +1956,24 @@ function PerformancePage({ onExitAdvanced }) {
             totalAssets={latestTwSnap?.tw?.totalAssets ?? 0}
             savedAt={latestTwSnap?.savedAt ?? null}
           />
+          <MonthlyReturnCard
+            title="台股月度報酬（TWD）"
+            accentClass="text-sky-600"
+            monthlyReturns={twMonthlyReturns}
+          />
 
-          {/* 美股績效（USD）*/}
+          {/* ── 美股區塊（USD）── */}
           <PerfCard
             title="美股績效（USD）"
             accentClass="text-orange-500"
             cashflows={usCashflows}
             totalAssets={latestUsSnap?.us?.totalAssets ?? 0}
             savedAt={latestUsSnap?.savedAt ?? null}
+          />
+          <MonthlyReturnCard
+            title="美股月度報酬（USD）"
+            accentClass="text-orange-500"
+            monthlyReturns={usMonthlyReturns}
           />
         </>
       )}
@@ -1909,6 +1990,8 @@ function PerformancePage({ onExitAdvanced }) {
                 const snap = data?.snapshot
                 const twT  = snap?.tw?.totalAssets
                 const usT  = snap?.us?.totalAssets
+                const twR  = twReturnMap[month]
+                const usR  = usReturnMap[month]
                 return (
                   <div key={month} className="py-1.5 border-b border-gray-50 last:border-0">
                     <div className="flex items-center justify-between">
@@ -1916,15 +1999,25 @@ function PerformancePage({ onExitAdvanced }) {
                       <span className="text-xs text-gray-400">{cfs.length} 筆紀錄</span>
                     </div>
                     {snap && (
-                      <div className="flex gap-3 mt-0.5">
+                      <div className="flex gap-3 mt-0.5 flex-wrap">
                         {twT > 0 && (
                           <span className="text-[11px] text-sky-600">
                             台股 {formatNumber(Math.round(twT))}
+                            {twR !== undefined && (
+                              <span className={`ml-1 ${returnColor(twR)}`}>
+                                ({formatReturnRate(twR)})
+                              </span>
+                            )}
                           </span>
                         )}
                         {usT > 0 && (
                           <span className="text-[11px] text-orange-500">
                             美股 {formatNumber(Math.round(usT))}
+                            {usR !== undefined && (
+                              <span className={`ml-1 ${returnColor(usR)}`}>
+                                ({formatReturnRate(usR)})
+                              </span>
+                            )}
                           </span>
                         )}
                       </div>
