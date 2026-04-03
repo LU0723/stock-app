@@ -1612,6 +1612,7 @@ function LedgerPage({ onExitAdvanced }) {
   })
   const [showForm, setShowForm] = useState(false)
   const [savedMsg, setSavedMsg] = useState(false)
+  const [note,     setNote]     = useState('')
 
   // mount 時：若本月份尚未建立，自動補建空資料（只執行一次）
   useEffect(() => {
@@ -1623,8 +1624,9 @@ function LedgerPage({ onExitAdvanced }) {
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 月份切換時，從 ledger 讀入該月快照
+  // 月份切換時，從 ledger 讀入該月快照與心得
   useEffect(() => {
+    setNote(ledger[selectedMonth]?.note ?? '')
     const snap = ledger[selectedMonth]?.snapshot
     setSnapInputs(snap?.tw
       ? {
@@ -1681,7 +1683,7 @@ function LedgerPage({ onExitAdvanced }) {
       savedAt: new Date().toISOString(),
     }
     const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
-    const next = { ...ledger, [selectedMonth]: { ...existing, snapshot: snap } }
+    const next = { ...ledger, [selectedMonth]: { ...existing, snapshot: snap, note: note.trim() || undefined } }
     updateLedger(next)
     setSavedMsg(true)
     setTimeout(() => setSavedMsg(false), 2000)
@@ -1815,6 +1817,19 @@ function LedgerPage({ onExitAdvanced }) {
           selectedMonth={selectedMonth}
         />
       )}
+
+      {/* 4. 當月心得 / 操作回顧 */}
+      <div className="bg-white rounded-2xl px-4 py-3 mt-4 shadow-sm border border-gray-100">
+        <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">當月心得 / 操作回顧</p>
+        <textarea
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="記錄這個月的操作、判斷、錯誤、觀察重點..."
+          rows={5}
+          className="w-full text-sm text-gray-800 placeholder-gray-300 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-gray-400 resize-none"
+        />
+        <p className="text-[11px] text-gray-400 mt-1">按「儲存本月資料」一併儲存</p>
+      </div>
     </div>
   )
 }
