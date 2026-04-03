@@ -1923,7 +1923,7 @@ function returnColor(r) {
 }
 
 function MonthlyReturnCard({ title, accentClass, monthlyReturns }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const cumulativeReturn = useMemo(
     () => getCumulativeReturn(monthlyReturns),
     [monthlyReturns]
@@ -2015,7 +2015,7 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  const [logsOpen, setLogsOpen] = useState(true)
+  const [logsOpen, setLogsOpen] = useState(false)
 
   // 月度報酬（台股 / 美股各自獨立）
   const twMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'tw'), [ledger])
