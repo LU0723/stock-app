@@ -2082,7 +2082,6 @@ function PerformancePage({ onExitAdvanced }) {
             {Object.entries(ledger)
               .sort(([a], [b]) => b.localeCompare(a))
               .map(([month, data]) => {
-                const cfs  = Array.isArray(data?.cashflows) ? data.cashflows : []
                 const snap = data?.snapshot
                 const twT  = snap?.tw?.totalAssets
                 const usT  = snap?.us?.totalAssets
@@ -2092,7 +2091,6 @@ function PerformancePage({ onExitAdvanced }) {
                   <div key={month} className="py-1.5 border-b border-gray-50 last:border-0">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-700">{month.replace('-', '/')}</span>
-                      <span className="text-xs text-gray-400">{cfs.length} 筆紀錄</span>
                     </div>
                     {snap && (
                       <div className="flex gap-3 mt-0.5 flex-wrap">
