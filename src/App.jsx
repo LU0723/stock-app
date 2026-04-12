@@ -33,6 +33,8 @@ const PERF_CASHFLOWS_KEY  = 'performance-cashflows'
 const NORMAL_TAB_KEY      = 'normalTab'
 const ADVANCED_TAB_KEY    = 'advancedTab'
 const MONTHLY_LEDGER_KEY  = 'performance-monthly-ledger'
+const US_ACCOUNT_NAMES_KEY = 'us-account-names'
+const DEFAULT_US_NAMES     = ['Schwab', 'eToro', '複委託']
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -158,6 +160,19 @@ function loadLedger() {
 }
 function saveLedger(ledger) {
   localStorage.setItem(MONTHLY_LEDGER_KEY, JSON.stringify(ledger))
+}
+function loadUsAccountNames() {
+  try {
+    const saved = localStorage.getItem(US_ACCOUNT_NAMES_KEY)
+    if (saved) {
+      const arr = JSON.parse(saved)
+      if (Array.isArray(arr) && arr.length === 3 && arr.every(s => typeof s === 'string')) return arr
+    }
+  } catch {}
+  return [...DEFAULT_US_NAMES]
+}
+function saveUsAccountNames(names) {
+  localStorage.setItem(US_ACCOUNT_NAMES_KEY, JSON.stringify(names))
 }
 
 // ─── 月份選項（近 12 個月）──────────────────────────────────────────────────
@@ -1610,9 +1625,12 @@ function LedgerPage({ onExitAdvanced }) {
     tw: { stockValue: '', cashValue: '' },
     us: { schwabValue: '', etoroValue: '', futoValue: '' },
   })
-  const [showForm, setShowForm] = useState(false)
-  const [savedMsg, setSavedMsg] = useState(false)
-  const [note,     setNote]     = useState('')
+  const [showForm,     setShowForm]     = useState(false)
+  const [savedMsg,     setSavedMsg]     = useState(false)
+  const [note,         setNote]         = useState('')
+  const [usNames,      setUsNames]      = useState(loadUsAccountNames)
+  const [editingNames, setEditingNames] = useState(false)
+  const [nameInputs,   setNameInputs]   = useState(loadUsAccountNames)
 
   // mount 時：若本月份尚未建立，自動補建空資料（只執行一次）
   useEffect(() => {
@@ -1759,12 +1777,48 @@ function LedgerPage({ onExitAdvanced }) {
 
         {/* 美股帳本（USD）*/}
         <div>
-          <p className="text-xs font-semibold text-orange-500 mb-2.5">美股帳本（USD）</p>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-xs font-semibold text-orange-500">美股帳本（USD）</p>
+            <button
+              onClick={() => { setNameInputs([...usNames]); setEditingNames(e => !e) }}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >{editingNames ? '取消' : '編輯名稱'}</button>
+          </div>
+
+          {editingNames && (
+            <div className="mb-3 p-3 bg-orange-50 rounded-xl border border-orange-100">
+              <p className="text-[11px] text-orange-400 mb-2">自訂帳戶名稱</p>
+              {nameInputs.map((name, i) => (
+                <div key={i} className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-400 w-4 text-right">{i + 1}.</span>
+                  <input
+                    value={name}
+                    onChange={e => {
+                      const next = [...nameInputs]
+                      next[i] = e.target.value
+                      setNameInputs(next)
+                    }}
+                    className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:border-orange-300"
+                  />
+                </div>
+              ))}
+              <button
+                onClick={() => {
+                  const names = nameInputs.map((n, i) => n.trim() || DEFAULT_US_NAMES[i])
+                  setUsNames(names)
+                  saveUsAccountNames(names)
+                  setEditingNames(false)
+                }}
+                className="w-full mt-1 py-1.5 rounded-lg text-xs font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+              >儲存名稱</button>
+            </div>
+          )}
+
           <div className="space-y-2.5">
             {[
-              { label: 'Schwab 市值', field: 'schwabValue' },
-              { label: 'eToro 市值',  field: 'etoroValue'  },
-              { label: '複委託市值',  field: 'futoValue'   },
+              { label: `${usNames[0]} 市值`, field: 'schwabValue' },
+              { label: `${usNames[1]} 市值`, field: 'etoroValue'  },
+              { label: `${usNames[2]} 市值`, field: 'futoValue'   },
             ].map(({ label, field }) => (
               <div key={field} className="flex items-center gap-3">
                 <label className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
