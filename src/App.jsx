@@ -369,7 +369,7 @@ function TopBar({ lastUpdated, isFetching, onRefresh, onBackup, onLongPress }) {
   const timerRef = useRef(null)
 
   function startPress() {
-    timerRef.current = setTimeout(() => { onLongPress() }, 2000)
+    timerRef.current = setTimeout(() => { onLongPress() }, 1200)
   }
   function cancelPress() {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null }
