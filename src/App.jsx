@@ -34,7 +34,7 @@ const NORMAL_TAB_KEY      = 'normalTab'
 const ADVANCED_TAB_KEY    = 'advancedTab'
 const MONTHLY_LEDGER_KEY  = 'performance-monthly-ledger'
 const US_ACCOUNT_NAMES_KEY = 'us-account-names'
-const DEFAULT_US_NAMES     = ['Schwab', 'eToro', '複委託']
+const DEFAULT_US_NAMES     = ['美股帳戶 1', '美股帳戶 2', '美股帳戶 3']
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L']
@@ -118,9 +118,9 @@ function migrateSnapshot(snap) {
       totalAssets: (snap.twStockValue ?? 0) + (snap.cashValue ?? 0),
     },
     us: {
-      schwabValue: snap.usStockValue ?? 0,
-      etoroValue:  0,
-      futoValue:   0,
+      usAccount1Value: snap.usStockValue ?? 0,
+      usAccount2Value: 0,
+      usAccount3Value: 0,
       totalAssets: snap.usStockValue ?? 0,
     },
     savedAt: snap.savedAt ?? null,
@@ -156,6 +156,30 @@ function loadLedger() {
       ledger[month] = { ...data, snapshot: migrateSnapshot(snap) }
     }
   }
+
+  // 遷移舊版美股 key（schwabValue/etoroValue/futoValue → usAccount1/2/3Value）
+  let migrated = false
+  for (const [month, data] of Object.entries(ledger)) {
+    const us = data?.snapshot?.us
+    if (us && 'schwabValue' in us) {
+      const { schwabValue, etoroValue, futoValue, ...rest } = us
+      ledger[month] = {
+        ...data,
+        snapshot: {
+          ...data.snapshot,
+          us: {
+            ...rest,
+            usAccount1Value: schwabValue ?? 0,
+            usAccount2Value: etoroValue  ?? 0,
+            usAccount3Value: futoValue   ?? 0,
+          },
+        },
+      }
+      migrated = true
+    }
+  }
+  if (migrated) saveLedger(ledger)
+
   return ledger
 }
 function saveLedger(ledger) {
@@ -1623,7 +1647,7 @@ function LedgerPage({ onExitAdvanced }) {
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey)
   const [snapInputs,    setSnapInputs]    = useState({
     tw: { stockValue: '', cashValue: '' },
-    us: { schwabValue: '', etoroValue: '', futoValue: '' },
+    us: { usAccount1Value: '', usAccount2Value: '', usAccount3Value: '' },
   })
   const [showForm,     setShowForm]     = useState(false)
   const [savedMsg,     setSavedMsg]     = useState(false)
@@ -1649,11 +1673,11 @@ function LedgerPage({ onExitAdvanced }) {
     setSnapInputs(snap?.tw
       ? {
           tw: { stockValue: snap.tw.stockValue ?? '', cashValue: snap.tw.cashValue ?? '' },
-          us: { schwabValue: snap.us?.schwabValue ?? '', etoroValue: snap.us?.etoroValue ?? '', futoValue: snap.us?.futoValue ?? '' },
+          us: { usAccount1Value: snap.us?.usAccount1Value ?? '', usAccount2Value: snap.us?.usAccount2Value ?? '', usAccount3Value: snap.us?.usAccount3Value ?? '' },
         }
       : {
           tw: { stockValue: '', cashValue: '' },
-          us: { schwabValue: '', etoroValue: '', futoValue: '' },
+          us: { usAccount1Value: '', usAccount2Value: '', usAccount3Value: '' },
         }
     )
   }, [selectedMonth]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -1667,9 +1691,9 @@ function LedgerPage({ onExitAdvanced }) {
   const twTotal = twStock + twCash
 
   // ── 美股計算 ──
-  const usSchwab = parseFloat(snapInputs.us.schwabValue) || 0
-  const usEtoro  = parseFloat(snapInputs.us.etoroValue)  || 0
-  const usFuto   = parseFloat(snapInputs.us.futoValue)   || 0
+  const usSchwab = parseFloat(snapInputs.us.usAccount1Value) || 0
+  const usEtoro  = parseFloat(snapInputs.us.usAccount2Value) || 0
+  const usFuto   = parseFloat(snapInputs.us.usAccount3Value) || 0
   const usTotal  = usSchwab + usEtoro + usFuto
 
   function updateLedger(next) { setLedger(next); saveLedger(next) }
@@ -1697,7 +1721,7 @@ function LedgerPage({ onExitAdvanced }) {
   function handleSaveSnapshot() {
     const snap = {
       tw: { stockValue: twStock, cashValue: twCash, totalAssets: twTotal },
-      us: { schwabValue: usSchwab, etoroValue: usEtoro, futoValue: usFuto, totalAssets: usTotal },
+      us: { usAccount1Value: usSchwab, usAccount2Value: usEtoro, usAccount3Value: usFuto, totalAssets: usTotal },
       savedAt: new Date().toISOString(),
     }
     const existing = ledger[selectedMonth] || { cashflows: [], snapshot: null }
@@ -1816,9 +1840,9 @@ function LedgerPage({ onExitAdvanced }) {
 
           <div className="space-y-2.5">
             {[
-              { label: `${usNames[0]} 市值`, field: 'schwabValue' },
-              { label: `${usNames[1]} 市值`, field: 'etoroValue'  },
-              { label: `${usNames[2]} 市值`, field: 'futoValue'   },
+              { label: `${usNames[0]} 市值`, field: 'usAccount1Value' },
+              { label: `${usNames[1]} 市值`, field: 'usAccount2Value' },
+              { label: `${usNames[2]} 市值`, field: 'usAccount3Value' },
             ].map(({ label, field }) => (
               <div key={field} className="flex items-center gap-3">
                 <label className="text-sm text-gray-600 w-28 shrink-0">{label}</label>
