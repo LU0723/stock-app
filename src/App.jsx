@@ -37,7 +37,7 @@ const US_ACCOUNT_NAMES_KEY = 'us-account-names'
 const DEFAULT_US_NAMES     = ['美股帳戶 1', '美股帳戶 2', '美股帳戶 3']
 
 // 正二曝險標的，未來可在此擴充
-const LEVERAGED_SYMBOLS = ['00631L', '00675L']
+const LEVERAGED_SYMBOLS = ['00631L', '00675L', '00685L', '00663L']
 
 function loadSortLocked() {
   return localStorage.getItem(SORT_LOCK_KEY) !== 'false'
