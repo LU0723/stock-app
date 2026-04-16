@@ -35,6 +35,7 @@ const ADVANCED_TAB_KEY    = 'advancedTab'
 const MONTHLY_LEDGER_KEY  = 'performance-monthly-ledger'
 const US_ACCOUNT_NAMES_KEY = 'us-account-names'
 const DEFAULT_US_NAMES     = ['美股帳戶 1', '美股帳戶 2', '美股帳戶 3']
+const US_HOLDINGS_KEY      = 'us-holdings'
 
 // 正二曝險標的，未來可在此擴充
 const LEVERAGED_SYMBOLS = ['00631L', '00675L', '00685L', '00663L']
@@ -65,6 +66,18 @@ function loadWatchlist() {
 
 function saveWatchlist(list) {
   localStorage.setItem(WATCHLIST_KEY, JSON.stringify(list))
+}
+
+function loadUsHoldings() {
+  try {
+    const saved = localStorage.getItem(US_HOLDINGS_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch {}
+  return []
+}
+
+function saveUsHoldings(holdings) {
+  localStorage.setItem(US_HOLDINGS_KEY, JSON.stringify(holdings))
 }
 
 function loadCash() {
@@ -318,6 +331,18 @@ async function fetchTaiwanIndex() {
   return price
 }
 
+// ─── 美股報價 API（Yahoo Finance，約 15 分鐘延遲）─────────────────────────────
+// 回傳：{ [symbol]: { name, price, previousClose, marketState } }
+// price        = regularMarketPrice（正式盤，不含 pre/post market）
+// previousClose = 上一個正式盤收盤價（今日漲跌幅基準）
+// marketState  = 'PRE' | 'REGULAR' | 'POST' | 'UNKNOWN'（由伺服器從時間戳推算）
+async function fetchUsStockMap(symbols) {
+  if (symbols.length === 0) return {}
+  const res = await fetch(`/api/us-stock?symbols=${symbols.join(',')}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`US API 錯誤：${res.status}`)
+  return await res.json()
+}
+
 // 庫存頁專用：套用價格到 holdings 陣列
 async function fetchPrices(holdings) {
   if (holdings.length === 0) return holdings
@@ -376,6 +401,47 @@ function calcSummary(stocks, holdings) {
   }
 }
 
+// ─── 美股計算邏輯 ─────────────────────────────────────────────────────────────
+
+function calcUsStock(h) {
+  if (h.price === 0 || h.previousClose === 0) {
+    return {
+      symbol: h.symbol, name: h.name, shares: h.shares, avgCost: h.avgCost,
+      price: h.price, changePercent: 0, todayPnL: 0, totalPnL: 0, returnRate: 0,
+    }
+  }
+  return {
+    symbol: h.symbol,
+    name: h.name,
+    shares: h.shares,
+    avgCost: h.avgCost,
+    price: h.price,
+    changePercent: ((h.price - h.previousClose) / h.previousClose) * 100,
+    todayPnL:   (h.price - h.previousClose) * h.shares,
+    totalPnL:   (h.price - h.avgCost)       * h.shares,
+    returnRate: ((h.price - h.avgCost) / h.avgCost) * 100,
+  }
+}
+
+function calcUsSummary(stocks, holdings) {
+  if (holdings.length === 0) {
+    return { todayPnL: 0, todayPnLPercent: 0, totalPnL: 0, totalPnLPercent: 0, marketValue: 0, totalCost: 0 }
+  }
+  const totalCost      = holdings.reduce((sum, h) => sum + h.avgCost       * h.shares, 0)
+  const marketValue    = holdings.reduce((sum, h) => sum + h.price         * h.shares, 0)
+  const previousValue  = holdings.reduce((sum, h) => sum + h.previousClose * h.shares, 0)
+  const todayPnL       = stocks.reduce((sum, s) => sum + s.todayPnL, 0)
+  const totalPnL       = stocks.reduce((sum, s) => sum + s.totalPnL, 0)
+  return {
+    todayPnL,
+    todayPnLPercent: previousValue > 0 ? (todayPnL / previousValue) * 100 : 0,
+    totalPnL,
+    totalPnLPercent: totalCost > 0 ? (totalPnL / totalCost) * 100 : 0,
+    marketValue,
+    totalCost,
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatNumber(n) {
@@ -420,7 +486,7 @@ function TopBar({ lastUpdated, isFetching, onRefresh, onBackup, onLongPress }) {
         className="text-lg font-semibold text-gray-800 tracking-wide select-none"
         onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
         onTouchStart={startPress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
-      >我的持股</h1>
+      >台股持股 (TWD)</h1>
       <div className="flex items-center gap-3">
         <span className="text-xs text-gray-600">
           {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
@@ -2047,11 +2113,80 @@ function MonthlyReturnCard({ title, accentClass, monthlyReturns }) {
   )
 }
 
+// ─── 總資產走勢線圖 ───────────────────────────────────────────────────────────
+
+function PerfLineChart({ data, usd }) {
+  if (!data || data.length < 2) {
+    return (
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100 flex items-center justify-center" style={{ minHeight: 120 }}>
+        <p className="text-xs text-gray-300">資料不足，需至少兩個月快照</p>
+      </div>
+    )
+  }
+
+  const VW = 340, VH = 130
+  const PAD = { top: 10, right: 12, bottom: 24, left: 52 }
+  const cW = VW - PAD.left - PAD.right
+  const cH = VH - PAD.top - PAD.bottom
+
+  const values = data.map(d => d.endAssets)
+  const minV = Math.min(...values)
+  const maxV = Math.max(...values)
+  const range = maxV - minV
+  const lo = range === 0 ? minV * 0.95 : minV - range * 0.05
+  const hi = range === 0 ? maxV * 1.05 : maxV + range * 0.05
+  const span = hi - lo || 1
+
+  const toX = i => PAD.left + (i / (data.length - 1)) * cW
+  const toY = v => PAD.top + (1 - (v - lo) / span) * cH
+
+  const pts = data.map((d, i) => ({ x: toX(i), y: toY(d.endAssets), month: d.month }))
+  const polyline = pts.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')
+
+  const yTicks = [lo, (lo + hi) / 2, hi]
+  const fmtY = v => usd
+    ? (v >= 1000 ? `$${(v / 1000).toFixed(0)}K` : `$${v.toFixed(0)}`)
+    : (v >= 10000 ? `${(v / 10000).toFixed(1)}萬` : `${Math.round(v)}`)
+
+  const xLabelIdxs = new Set([0, data.length - 1])
+  if (data.length >= 4) xLabelIdxs.add(Math.floor((data.length - 1) / 2))
+
+  const strokeColor = usd ? '#f97316' : '#0ea5e9'
+
+  return (
+    <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+      <p className="text-xs font-semibold text-gray-500 mb-2">總資產走勢</p>
+      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ height: 120 }}>
+        {yTicks.map((v, i) => {
+          const y = toY(v).toFixed(1)
+          return (
+            <g key={i}>
+              <line x1={PAD.left} y1={y} x2={VW - PAD.right} y2={y} stroke="#f0f0f0" strokeWidth="1" />
+              <text x={PAD.left - 4} y={parseFloat(y) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{fmtY(v)}</text>
+            </g>
+          )
+        })}
+        <polyline points={polyline} fill="none" stroke={strokeColor} strokeWidth="2" strokeLinejoin="round" />
+        {pts.map((p, i) => (
+          <circle key={i} cx={p.x.toFixed(1)} cy={p.y.toFixed(1)} r="2.5" fill={strokeColor} />
+        ))}
+        {pts.map((p, i) => {
+          if (!xLabelIdxs.has(i)) return null
+          const [yr, mo] = p.month.split('-')
+          return (
+            <text key={i} x={p.x.toFixed(1)} y={VH - 2} textAnchor="middle" fontSize="9" fill="#9ca3af">{`${yr.slice(2)}/${mo}`}</text>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 // ─── 績效頁主體 ───────────────────────────────────────────────────────────────
 
 function PerformancePage({ onExitAdvanced }) {
-  // 每次 mount 都讀最新 ledger
   const [ledger] = useState(loadLedger)
+  const [perfMarket, setPerfMarket] = useState('tw')
 
   const allCashflows = useMemo(() =>
     Object.values(ledger)
@@ -2060,7 +2195,6 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  // 台股 cashflows：只計入已有台股快照的月份（避免未結帳月份扭曲累計淨入金與XIRR）
   const twCashflows = useMemo(() =>
     Object.entries(ledger)
       .filter(([, m]) => (m?.snapshot?.tw?.totalAssets ?? 0) > 0)
@@ -2068,7 +2202,6 @@ function PerformancePage({ onExitAdvanced }) {
       .filter(cf => cf?.date && cf?.amount != null && (!cf.ledgerType || cf.ledgerType === 'tw')),
     [ledger]
   )
-  // 美股 cashflows：只計入已有美股快照的月份
   const usCashflows = useMemo(() =>
     Object.entries(ledger)
       .filter(([, m]) => (m?.snapshot?.us?.totalAssets ?? 0) > 0)
@@ -2077,7 +2210,6 @@ function PerformancePage({ onExitAdvanced }) {
     [ledger]
   )
 
-  // 取各帳本最新 snapshot
   const latestTwSnap = useMemo(() =>
     Object.entries(ledger)
       .filter(([, m]) => m?.snapshot?.tw?.totalAssets > 0)
@@ -2095,11 +2227,9 @@ function PerformancePage({ onExitAdvanced }) {
 
   const [logsOpen, setLogsOpen] = useState(false)
 
-  // 月度報酬（台股 / 美股各自獨立）
   const twMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'tw'), [ledger])
   const usMonthlyReturns = useMemo(() => getMonthlyReturns(ledger, 'us'), [ledger])
 
-  // 建立 month → returnRate 查詢表，供各月紀錄列使用
   const twReturnMap = useMemo(() =>
     Object.fromEntries(twMonthlyReturns.map(m => [m.month, m.returnRate])),
     [twMonthlyReturns]
@@ -2110,15 +2240,32 @@ function PerformancePage({ onExitAdvanced }) {
   )
 
   const hasAnyData = allCashflows.length > 0 || Object.keys(ledger).length > 0
+  const isTw = perfMarket === 'tw'
 
   return (
     <div className="px-4 pt-12 pb-6">
       {/* 標題列 + 退出按鈕 */}
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-4">
         <h1 className="text-lg font-semibold text-gray-800 tracking-wide">績效 / XIRR</h1>
         <button onClick={onExitAdvanced}
           className="text-xs text-gray-500 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1.5 transition-colors"
         >退出進階模式</button>
+      </div>
+
+      {/* 市場切換 */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setPerfMarket('tw')}
+          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+            isTw ? 'bg-sky-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+          }`}
+        >台股 (TWD)</button>
+        <button
+          onClick={() => setPerfMarket('us')}
+          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+            !isTw ? 'bg-orange-400 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+          }`}
+        >美股 (USD)</button>
       </div>
 
       {!hasAnyData && (
@@ -2130,38 +2277,48 @@ function PerformancePage({ onExitAdvanced }) {
 
       {hasAnyData && (
         <>
-          {/* ── 台股區塊（TWD）── */}
-          <PerfCard
-            title="台股績效（TWD）"
-            accentClass="text-sky-600"
-            cashflows={twCashflows}
-            totalAssets={latestTwSnap?.tw?.totalAssets ?? 0}
-            savedAt={latestTwSnap?.savedAt ?? null}
-          />
-          <MonthlyReturnCard
-            title="台股月度報酬（TWD）"
-            accentClass="text-sky-600"
-            monthlyReturns={twMonthlyReturns}
-          />
+          {/* 線圖：只顯示目前所選市場的總資產走勢 */}
+          <PerfLineChart data={isTw ? twMonthlyReturns : usMonthlyReturns} usd={!isTw} />
 
-          {/* ── 美股區塊（USD）── */}
-          <PerfCard
-            title="美股績效（USD）"
-            accentClass="text-orange-500"
-            cashflows={usCashflows}
-            totalAssets={latestUsSnap?.us?.totalAssets ?? 0}
-            savedAt={latestUsSnap?.savedAt ?? null}
-            usd
-          />
-          <MonthlyReturnCard
-            title="美股月度報酬（USD）"
-            accentClass="text-orange-500"
-            monthlyReturns={usMonthlyReturns}
-          />
+          {/* 中段資訊：min-height 確保切換時高度穩定，不忽高忽低 */}
+          <div className="min-h-[200px]">
+            {isTw ? (
+              <>
+                <PerfCard
+                  title="台股績效（TWD）"
+                  accentClass="text-sky-600"
+                  cashflows={twCashflows}
+                  totalAssets={latestTwSnap?.tw?.totalAssets ?? 0}
+                  savedAt={latestTwSnap?.savedAt ?? null}
+                />
+                <MonthlyReturnCard
+                  title="台股月度報酬（TWD）"
+                  accentClass="text-sky-600"
+                  monthlyReturns={twMonthlyReturns}
+                />
+              </>
+            ) : (
+              <>
+                <PerfCard
+                  title="美股績效（USD）"
+                  accentClass="text-orange-500"
+                  cashflows={usCashflows}
+                  totalAssets={latestUsSnap?.us?.totalAssets ?? 0}
+                  savedAt={latestUsSnap?.savedAt ?? null}
+                  usd
+                />
+                <MonthlyReturnCard
+                  title="美股月度報酬（USD）"
+                  accentClass="text-orange-500"
+                  monthlyReturns={usMonthlyReturns}
+                />
+              </>
+            )}
+          </div>
         </>
       )}
 
-      {/* 各月紀錄 */}
+      {/* 各月紀錄（永遠顯示台股 + 美股，不受市場切換影響）*/}
       {Object.keys(ledger).length > 0 && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <button
@@ -2219,13 +2376,337 @@ function PerformancePage({ onExitAdvanced }) {
   )
 }
 
+// ─── 美股持股 ─────────────────────────────────────────────────────────────────
+
+function UsHoldingForm({ initial, onSave, onCancel }) {
+  const isEdit = initial != null
+  const [form, setForm] = useState({
+    symbol:  initial?.symbol  ?? '',
+    name:    initial?.name    ?? '',
+    shares:  initial?.shares  ?? '',
+    avgCost: initial?.avgCost ?? '',
+  })
+  const [isLookingUp, setIsLookingUp] = useState(false)
+
+  function set(field, value) {
+    setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  async function lookupName() {
+    const sym = form.symbol.trim().toUpperCase()
+    if (!sym || form.name) return
+    setIsLookingUp(true)
+    try {
+      const map  = await fetchUsStockMap([sym])
+      const info = map[sym]
+      if (info?.name) set('name', info.name)
+    } catch {}
+    setIsLookingUp(false)
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const shares  = parseFloat(form.shares)
+    const avgCost = parseFloat(form.avgCost)
+    if (!form.symbol || !form.name || shares <= 0 || avgCost <= 0) return
+    onSave({
+      price:         initial?.price         ?? 0,
+      previousClose: initial?.previousClose ?? 0,
+      symbol:  form.symbol.trim().toUpperCase(),
+      name:    form.name.trim(),
+      shares,
+      avgCost,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end">
+      <div className="w-full max-w-md mx-auto bg-[#1c1c1c] rounded-t-2xl border-t border-[#2a2a2a] p-5">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-base font-semibold text-white">{isEdit ? '編輯美股持股' : '新增美股持股'}</h2>
+          <button onClick={onCancel} className="text-white p-1">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+          <div>
+            <label className="text-xs text-white mb-1 block">股票代號</label>
+            <input type="text" value={form.symbol}
+              onChange={e => set('symbol', e.target.value)}
+              onBlur={lookupName}
+              placeholder="例：AAPL"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">
+              股票名稱
+              {isLookingUp && <span className="text-white ml-2">查詢中...</span>}
+            </label>
+            <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
+              placeholder="輸入代號後自動帶入，或手動填寫"
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-white mb-1 block">持股股數</label>
+              <input type="number" value={form.shares} onChange={e => set('shares', e.target.value)}
+                placeholder="例：10" min="0.000001" step="any"
+                className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
+            </div>
+            <div>
+              <label className="text-xs text-white mb-1 block">平均成本（USD）</label>
+              <input type="number" value={form.avgCost} onChange={e => set('avgCost', e.target.value)}
+                placeholder="例：150.00" min="0.0001" step="any"
+                className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">現價將在儲存後自動更新（Yahoo Finance，約 15 分鐘延遲）。</p>
+          <div className="flex gap-2 mt-1">
+            <button type="button" onClick={onCancel}
+              className="flex-1 py-2.5 rounded-xl border border-[#333] text-white text-sm">取消</button>
+            <button type="submit"
+              className="flex-1 py-2.5 rounded-xl bg-white text-black text-sm font-medium">儲存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function UsStockRow({ stock, onEdit, onDelete }) {
+  const [showActions, setShowActions] = useState(false)
+  const sharesStr = stock.shares % 1 === 0
+    ? stock.shares.toLocaleString('zh-TW')
+    : stock.shares.toLocaleString('zh-TW', { maximumFractionDigits: 6 })
+  return (
+    <div className="border-b border-gray-200 last:border-b-0">
+      <div className="px-4 pt-3.5 pb-3" onClick={() => setShowActions(prev => !prev)}>
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <p className="text-base font-semibold text-gray-900 leading-tight">{stock.name}</p>
+            <p className="text-xs text-gray-600 mt-0.5">{stock.symbol}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-lg font-semibold text-gray-900 tabular-nums">
+              {stock.price > 0 ? `$${fmtUsd(stock.price)}` : '--'}
+            </p>
+            <PercentText value={stock.changePercent} className="text-sm mt-0.5" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 bg-gray-100 rounded-xl px-3 py-2.5 mb-2.5">
+          <div>
+            <p className="text-xs text-gray-600 mb-0.5 uppercase tracking-wider">今日損益</p>
+            <span className={`text-base font-medium tabular-nums ${twColor(stock.todayPnL)}`}>
+              {stock.todayPnL >= 0 ? '+' : ''}${fmtUsd(stock.todayPnL)}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-gray-600 mb-0.5 uppercase tracking-wider">累積損益</p>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-base font-medium tabular-nums ${twColor(stock.totalPnL)}`}>
+                {stock.totalPnL >= 0 ? '+' : ''}${fmtUsd(stock.totalPnL)}
+              </span>
+              <PercentText value={stock.returnRate} className="text-xs" />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-sm text-gray-600">
+          <span>{sharesStr} 股</span>
+          <span>·</span>
+          <span>均價 ${fmtUsd(stock.avgCost)}</span>
+          <span>·</span>
+          <span>成本 ${fmtUsd(stock.shares * stock.avgCost)}</span>
+        </div>
+      </div>
+      {showActions && (
+        <div className="flex border-t border-gray-200">
+          <button onClick={() => { setShowActions(false); onEdit() }}
+            className="flex-1 py-2.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors">編輯</button>
+          <div className="w-px bg-gray-200" />
+          <button onClick={() => onDelete()}
+            className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function UsHoldingsPage() {
+  const [holdings,    setHoldings]    = useState(loadUsHoldings)
+  const [modal,       setModal]       = useState(null)
+  const [isFetching,  setIsFetching]  = useState(false)
+  const [fetchError,  setFetchError]  = useState(null)
+  const [lastUpdated, setLastUpdated] = useState('--')
+  const [marketState, setMarketState] = useState('UNKNOWN')
+
+  const stocks  = holdings.map(calcUsStock)
+  const summary = calcUsSummary(stocks, holdings)
+
+  function updateHoldings(next) {
+    setHoldings(next)
+    saveUsHoldings(next)
+  }
+
+  async function refreshPrices(currentHoldings) {
+    if (currentHoldings.length === 0) return
+    setIsFetching(true)
+    setFetchError(null)
+    try {
+      const map     = await fetchUsStockMap(currentHoldings.map(h => h.symbol))
+      const updated = currentHoldings.map(h => {
+        const found = map[h.symbol]
+        if (!found) return h
+        const price = found.price !== null ? found.price : (h.price > 0 ? h.price : found.previousClose)
+        return { ...h, price, previousClose: found.previousClose }
+      })
+      updateHoldings(updated)
+      setLastUpdated(
+        new Date().toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      )
+      // 取第一個有回傳的股票的 marketState 作為整體市場狀態
+      const firstFound = Object.values(map)[0]
+      if (firstFound?.marketState) setMarketState(firstFound.marketState)
+    } catch (err) {
+      console.error('[美股價格更新失敗]', err)
+      setFetchError('無法取得最新股價，顯示最後已知資料')
+    } finally {
+      setIsFetching(false)
+    }
+  }
+
+  useEffect(() => {
+    refreshPrices(loadUsHoldings())
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleAdd(newHolding) {
+    const next = [...holdings, newHolding]
+    updateHoldings(next)
+    setModal(null)
+    await refreshPrices(next)
+  }
+
+  function handleEdit(updatedHolding) {
+    const next = holdings.map((h, i) => i === modal ? updatedHolding : h)
+    updateHoldings(next)
+    setModal(null)
+  }
+
+  function handleDelete(index) {
+    updateHoldings(holdings.filter((_, i) => i !== index))
+  }
+
+  const todaySign = summary.todayPnL >= 0 ? '+' : ''
+  const todayColor = twColor(summary.todayPnL)
+
+  return (
+    <div>
+      {/* Top Bar */}
+      <div className="flex items-center justify-between px-4 pt-12 pb-4">
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">美股持股 (USD)</h1>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-600">
+            {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
+          </span>
+          <button
+            onClick={() => refreshPrices(holdings)}
+            disabled={isFetching}
+            className="text-gray-500 transition-colors p-1 disabled:opacity-40"
+            title="更新股價"
+          >
+            <RefreshIcon spinning={isFetching} />
+          </button>
+        </div>
+      </div>
+
+      {fetchError && (
+        <p className="mx-4 mb-3 text-xs text-yellow-600 bg-yellow-600/10 rounded-xl px-3 py-2">
+          {fetchError}
+        </p>
+      )}
+
+      {/* Summary Card */}
+      <div className="mx-4 mb-4 bg-white rounded-xl p-4 border border-gray-300">
+        <div className="mb-4 pb-4 border-b border-gray-200">
+          <p className="text-xs text-gray-600 mb-1 uppercase tracking-wider">今日損益</p>
+          <p className={`text-[36px] leading-none font-bold ${todayColor}`}>
+            {todaySign}${fmtUsd(summary.todayPnL)}
+          </p>
+          <PercentText value={summary.todayPnLPercent} className="text-base mt-1" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-gray-600 mb-1">累積損益</p>
+            <span className={`text-xl font-semibold ${twColor(summary.totalPnL)}`}>
+              {summary.totalPnL >= 0 ? '+' : ''}${fmtUsd(summary.totalPnL)}
+            </span>
+            <div className="mt-0.5">
+              <PercentText value={summary.totalPnLPercent} className="text-sm" />
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-gray-600 mb-1">股票市值</p>
+            <p className="text-xl font-semibold text-gray-900">${fmtUsd(summary.marketValue)}</p>
+            <p className="text-sm text-gray-600 mt-0.5">成本 ${fmtUsd(summary.totalCost)}</p>
+          </div>
+        </div>
+        <p className="text-[10px] text-gray-400 mt-3">
+          {marketState === 'REGULAR' && '交易中（正式盤）'}
+          {marketState === 'PRE'     && '盤前時段｜顯示上一正式盤收盤價'}
+          {marketState === 'POST'    && '盤後時段｜顯示今日正式盤收盤價'}
+          {(marketState === 'UNKNOWN' || !marketState) && ''}
+          {marketState !== 'UNKNOWN' && marketState && '　｜　'}
+          Yahoo Finance｜約 15 分鐘延遲｜USD
+        </p>
+      </div>
+
+      {/* Holdings List */}
+      <div className="mx-4">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs text-gray-600 uppercase tracking-wider">持股明細</p>
+          <div className="flex items-center gap-3">
+            <p className="text-xs text-gray-600">{holdings.length} 檔</p>
+            <button onClick={() => setModal('add')}
+              className="text-xs text-gray-700 border border-gray-300 hover:border-gray-400 rounded-lg px-2.5 py-1 transition-colors">
+              + 新增
+            </button>
+          </div>
+        </div>
+        {holdings.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-300 p-8 text-center">
+            <p className="text-gray-600 text-sm">尚無美股持股</p>
+            <p className="text-gray-500 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-300 overflow-hidden">
+            {stocks.map((stock, index) => (
+              <UsStockRow key={stock.symbol} stock={stock}
+                onEdit={() => setModal(index)}
+                onDelete={() => handleDelete(index)} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal */}
+      {modal === 'add' && (
+        <UsHoldingForm initial={null} onSave={handleAdd} onCancel={() => setModal(null)} />
+      )}
+      {typeof modal === 'number' && (
+        <UsHoldingForm initial={holdings[modal]} onSave={handleEdit} onCancel={() => setModal(null)} />
+      )}
+    </div>
+  )
+}
+
 // ─── 底部導覽列 ───────────────────────────────────────────────────────────────
 
 function BottomNav({ activePage, onNavigate, advancedMode }) {
   const normalTabs = [
     {
       id: 'portfolio',
-      label: '我的持股',
+      label: '台股持股',
       icon: (
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -2242,6 +2723,18 @@ function BottomNav({ activePage, onNavigate, advancedMode }) {
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
           stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+        </svg>
+      ),
+    },
+    {
+      id: 'us-holdings',
+      label: '美股持股',
+      icon: (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
         </svg>
       ),
     },
@@ -2329,7 +2822,7 @@ export default function App() {
   )
   const [normalTab, setNormalTab] = useState(() => {
     const saved = localStorage.getItem(NORMAL_TAB_KEY)
-    return (saved === 'portfolio' || saved === 'watchlist') ? saved : 'portfolio'
+    return (saved === 'portfolio' || saved === 'watchlist' || saved === 'us-holdings') ? saved : 'portfolio'
   })
   const [advancedTab, setAdvancedTab] = useState(() => {
     const saved = localStorage.getItem(ADVANCED_TAB_KEY)
@@ -2450,6 +2943,9 @@ export default function App() {
 
       {/* ── 自選股頁 ── */}
       {activePage === 'watchlist' && <WatchlistPage />}
+
+      {/* ── 美股持股頁 ── */}
+      {activePage === 'us-holdings' && <UsHoldingsPage />}
 
       {/* ── 曝險計算頁 ── */}
       {activePage === 'exposure' && <ExposurePage holdings={holdings} onExitAdvanced={handleExitAdvanced} />}

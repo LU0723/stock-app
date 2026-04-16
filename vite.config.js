@@ -54,6 +54,11 @@ export default defineConfig({
             urlPattern: /\/api\/stock.*/,
             handler: 'NetworkOnly',
           },
+          {
+            // 美股報價 API：永遠走網路，不快取
+            urlPattern: /\/api\/us-stock.*/,
+            handler: 'NetworkOnly',
+          },
         ],
       },
     }),
