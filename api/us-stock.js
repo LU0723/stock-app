@@ -65,9 +65,10 @@ async function fetchSymbol(sym) {
   // ── 主價格：只使用 regularMarketPrice，永不使用 pre/post market 價格 ──
   const price = (typeof meta.regularMarketPrice === 'number') ? meta.regularMarketPrice : null
 
-  // ── 前日收盤：chartPreviousClose 優先（對部分標的如 COIN 更準確），fallback 至 previousClose ──
+  // ── 前日收盤：previousClose = 前一個正式交易日收盤（今日漲跌的正確基準）
+  // chartPreviousClose = chart range 開始前的收盤（range=5d 即 5 個交易日前），不可用於今日漲跌計算
   // 若兩者皆無則回傳 null，前端收到 null 時隱藏今日漲跌 %，避免錯誤計算
-  const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? null
+  const previousClose = meta.previousClose ?? meta.chartPreviousClose ?? null
 
   // ── 市場狀態：從 currentTradingPeriod 時間戳推算 ──
   const marketState = deriveMarketState(meta.currentTradingPeriod)
