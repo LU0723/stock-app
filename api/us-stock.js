@@ -48,8 +48,9 @@ function deriveMarketState(tradingPeriod) {
 }
 
 async function fetchSymbol(sym) {
-  // range=5d 確保在週一等開市後可取得足夠的前一交易日資料
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=5d&interval=1d`
+  // range=1d&interval=1m：meta.previousClose 才會是前一個正式交易日收盤（今日漲跌基準）
+  // range=5d&interval=1d 的 meta.previousClose 為 undefined，chartPreviousClose 為 5 天前收盤，不可用
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1d&interval=1m`
   const upstream = await fetch(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
