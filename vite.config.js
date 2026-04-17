@@ -13,9 +13,9 @@ export default defineConfig({
 
       // Web App Manifest
       manifest: {
-        name:             '台股庫存',
-        short_name:       '台股庫存',
-        description:      '個人台股持股管理',
+        name:             '投資總覽',
+        short_name:       '投資總覽',
+        description:      '個人投資組合總覽',
         theme_color:      '#0f0f0f',
         background_color: '#0f0f0f',
         display:          'standalone',
