@@ -1184,13 +1184,25 @@ function BackupModal({ onClose }) {
       if (raw) ledger = JSON.parse(raw)
     } catch {}
 
+    let usAccountNames = {}
+    try {
+      const raw = localStorage.getItem(US_ACCOUNT_NAMES_KEY)
+      if (raw) usAccountNames = JSON.parse(raw)
+    } catch {}
+
     const backup = {
-      version:    2,
+      version:    3,
       exportedAt: now.toISOString(),
       holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY)     || '[]'),
       watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]'),
       sortLocked: localStorage.getItem(SORT_LOCK_KEY) ?? 'true',
       performanceMonthlyLedger: ledger,
+      // 美股持股（v3+）
+      usHoldings:     JSON.parse(localStorage.getItem(US_HOLDINGS_KEY) || '[]'),
+      usAccountNames,
+      // 進階功能曝險設定（v3+）
+      exposureCash:   localStorage.getItem(CASH_KEY)            ?? null,
+      exposureTarget: localStorage.getItem(TARGET_EXPOSURE_KEY) ?? null,
     }
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
     const url  = URL.createObjectURL(blob)
@@ -1216,7 +1228,7 @@ function BackupModal({ onClose }) {
           return
         }
 
-        // 還原基本資料
+        // 還原台股持股 + 自選股（必要欄位）
         localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings))
         localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist))
         if (data.sortLocked !== undefined) {
@@ -1226,13 +1238,24 @@ function BackupModal({ onClose }) {
         // 還原進階記帳資料（v2+ 才有；舊版備份缺少此欄位時直接跳過）
         if (data.performanceMonthlyLedger !== undefined) {
           if (!isValidLedger(data.performanceMonthlyLedger)) {
-            // 格式有問題：不覆蓋現有資料，但其他資料已還原
             setStatus('持股 / 自選股已還原，但進階記帳格式異常，略過還原。即將重新載入...')
             setTimeout(() => window.location.reload(), 1500)
             return
           }
           localStorage.setItem(MONTHLY_LEDGER_KEY, JSON.stringify(data.performanceMonthlyLedger))
         }
+
+        // 還原美股持股（v3+；舊版備份無此欄位時略過，不清除現有資料）
+        if (Array.isArray(data.usHoldings)) {
+          localStorage.setItem(US_HOLDINGS_KEY, JSON.stringify(data.usHoldings))
+        }
+        if (data.usAccountNames !== undefined && typeof data.usAccountNames === 'object') {
+          localStorage.setItem(US_ACCOUNT_NAMES_KEY, JSON.stringify(data.usAccountNames))
+        }
+
+        // 還原進階功能曝險設定（v3+；有值才寫入，避免用 null 覆蓋現有資料）
+        if (data.exposureCash   != null) localStorage.setItem(CASH_KEY,            String(data.exposureCash))
+        if (data.exposureTarget != null) localStorage.setItem(TARGET_EXPOSURE_KEY,  String(data.exposureTarget))
 
         setStatus('資料已恢復，即將重新載入...')
         setTimeout(() => window.location.reload(), 900)
