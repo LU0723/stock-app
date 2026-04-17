@@ -65,9 +65,9 @@ async function fetchSymbol(sym) {
   // ── 主價格：只使用 regularMarketPrice，永不使用 pre/post market 價格 ──
   const price = (typeof meta.regularMarketPrice === 'number') ? meta.regularMarketPrice : null
 
-  // ── 前日收盤：previousClose 是 v8 chart API 中最可靠的正式收盤基準 ──
-  // regularMarketPreviousClose 在此 API 不回傳，以 previousClose → chartPreviousClose 為序
-  const previousClose = meta.previousClose ?? meta.chartPreviousClose ?? 0
+  // ── 前日收盤：chartPreviousClose 優先（對部分標的如 COIN 更準確），fallback 至 previousClose ──
+  // 若兩者皆無則回傳 null，前端收到 null 時隱藏今日漲跌 %，避免錯誤計算
+  const previousClose = meta.chartPreviousClose ?? meta.previousClose ?? null
 
   // ── 市場狀態：從 currentTradingPeriod 時間戳推算 ──
   const marketState = deriveMarketState(meta.currentTradingPeriod)

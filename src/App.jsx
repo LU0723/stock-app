@@ -404,22 +404,23 @@ function calcSummary(stocks, holdings) {
 // ─── 美股計算邏輯 ─────────────────────────────────────────────────────────────
 
 function calcUsStock(h) {
-  if (h.price === 0 || h.previousClose === 0) {
-    return {
-      symbol: h.symbol, name: h.name, shares: h.shares, avgCost: h.avgCost,
-      price: h.price, changePercent: 0, todayPnL: 0, totalPnL: 0, returnRate: 0,
-    }
-  }
+  const hasPrevClose = h.previousClose != null && h.previousClose !== 0
   return {
     symbol: h.symbol,
-    name: h.name,
+    name:   h.name,
     shares: h.shares,
     avgCost: h.avgCost,
-    price: h.price,
-    changePercent: ((h.price - h.previousClose) / h.previousClose) * 100,
-    todayPnL:   (h.price - h.previousClose) * h.shares,
-    totalPnL:   (h.price - h.avgCost)       * h.shares,
-    returnRate: ((h.price - h.avgCost) / h.avgCost) * 100,
+    price:  h.price,
+    // 今日漲跌 %：只用 previousClose 計算，絕不使用 avgCost
+    changePercent: (h.price > 0 && hasPrevClose)
+      ? ((h.price - h.previousClose) / h.previousClose) * 100
+      : null,
+    todayPnL: (h.price > 0 && hasPrevClose)
+      ? (h.price - h.previousClose) * h.shares
+      : 0,
+    // 累積報酬 %：只用 avgCost 計算，與今日漲跌完全分離
+    totalPnL:   (h.price > 0 && h.avgCost > 0) ? (h.price - h.avgCost) * h.shares : 0,
+    returnRate: (h.price > 0 && h.avgCost > 0) ? ((h.price - h.avgCost) / h.avgCost) * 100 : 0,
   }
 }
 
@@ -464,6 +465,7 @@ function PnLText({ value, className = '' }) {
 }
 
 function PercentText({ value, className = '' }) {
+  if (value == null) return null
   const sign = value > 0 ? '+' : ''
   return <span className={`${twColor(value)} ${className}`}>{sign}{value.toFixed(2)}%</span>
 }
