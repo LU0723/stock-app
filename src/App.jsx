@@ -2207,6 +2207,203 @@ function PerfLineChart({ data, usd }) {
   )
 }
 
+// ─── 近期回測 ─────────────────────────────────────────────────────────────────
+
+const BACKTEST_PERIODS = [
+  { label: '7天',  days: 7   },
+  { label: '30天', days: 30  },
+  { label: '90天', days: 90  },
+  { label: '1年',  days: 365 },
+]
+
+const BACKTEST_MOCK = {
+  7: {
+    totalPnL: 34560, totalReturn: 0.0245,
+    daily: [
+      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
+      { date: '2026/04/21', pnl:   8650, ret:  0.0061 },
+      { date: '2026/04/20', pnl:  -5200, ret: -0.0037 },
+      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
+      { date: '2026/04/16', pnl:  -3200, ret: -0.0023 },
+      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
+      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
+    ],
+  },
+  30: {
+    totalPnL: 123456, totalReturn: 0.0845,
+    daily: [
+      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
+      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
+      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
+      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
+      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
+      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
+      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
+      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
+      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
+      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
+    ],
+  },
+  90: {
+    totalPnL: 289000, totalReturn: 0.1872,
+    daily: [
+      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
+      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
+      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
+      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
+      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
+      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
+      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
+      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
+      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
+      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
+    ],
+  },
+  365: {
+    totalPnL: 1024800, totalReturn: 0.5423,
+    daily: [
+      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
+      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
+      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
+      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
+      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
+      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
+      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
+      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
+      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
+      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
+    ],
+  },
+}
+
+function genMockCurve(days) {
+  const step = days <= 30 ? 1 : days <= 90 ? 3 : 7
+  const count = Math.ceil(days / step)
+  const pts = []
+  let cum = 0
+  for (let i = 0; i <= count; i++) {
+    cum += (Math.random() - 0.38) * 6000 + 2500
+    pts.push(cum)
+  }
+  return pts
+}
+
+function BacktestLineChart({ period }) {
+  const pts = useMemo(() => genMockCurve(period), [period])
+
+  const VW = 340, VH = 130
+  const PAD = { top: 10, right: 12, bottom: 18, left: 52 }
+  const cW = VW - PAD.left - PAD.right
+  const cH = VH - PAD.top - PAD.bottom
+
+  const minV = Math.min(...pts)
+  const maxV = Math.max(...pts)
+  const rng = maxV - minV || 1
+  const lo = minV - rng * 0.05
+  const hi = maxV + rng * 0.05
+  const span = hi - lo || 1
+
+  const toX = i => PAD.left + (i / (pts.length - 1)) * cW
+  const toY = v => PAD.top + (1 - (v - lo) / span) * cH
+
+  const polyline = pts.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+  const yTicks = [lo, (lo + hi) / 2, hi]
+  const fmtY = v => v >= 10000 ? `${(v / 10000).toFixed(1)}萬` : `${Math.round(v)}`
+
+  return (
+    <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+      <p className="text-xs font-semibold text-gray-500 mb-2">近期回測走勢</p>
+      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ height: 120 }}>
+        {yTicks.map((v, i) => {
+          const y = toY(v).toFixed(1)
+          return (
+            <g key={i}>
+              <line x1={PAD.left} y1={y} x2={VW - PAD.right} y2={y} stroke="#f0f0f0" strokeWidth="1" />
+              <text x={PAD.left - 4} y={parseFloat(y) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{fmtY(v)}</text>
+            </g>
+          )
+        })}
+        <polyline points={polyline} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinejoin="round" />
+        <circle
+          cx={toX(pts.length - 1).toFixed(1)}
+          cy={toY(pts[pts.length - 1]).toFixed(1)}
+          r="2.5" fill="#8b5cf6"
+        />
+      </svg>
+    </div>
+  )
+}
+
+function BacktestView() {
+  const [period, setPeriod] = useState(30)
+  const mock = BACKTEST_MOCK[period]
+  const pnlColor = mock.totalPnL >= 0 ? 'text-red-500' : 'text-green-600'
+  const retColor = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
+  const fmtPnl = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
+  const fmtRet = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
+
+  return (
+    <>
+      {/* 期間切換 */}
+      <div className="flex gap-2 mb-4">
+        {BACKTEST_PERIODS.map(({ label, days }) => (
+          <button
+            key={days}
+            onClick={() => setPeriod(days)}
+            className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+              period === days
+                ? 'bg-violet-500 text-white shadow-sm'
+                : 'bg-white text-gray-500 border border-gray-200'
+            }`}
+          >{label}</button>
+        ))}
+      </div>
+
+      {/* 摘要卡 */}
+      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+        <p className="text-xs font-semibold text-violet-600 mb-3">回測摘要（mock）</p>
+        <div className="flex gap-4">
+          <div className="flex-1 text-center">
+            <p className="text-[11px] text-gray-400 mb-1">累積損益</p>
+            <p className={`text-base font-bold ${pnlColor}`}>{fmtPnl(mock.totalPnL)}</p>
+          </div>
+          <div className="w-px bg-gray-100" />
+          <div className="flex-1 text-center">
+            <p className="text-[11px] text-gray-400 mb-1">累積報酬率</p>
+            <p className={`text-base font-bold ${retColor}`}>{fmtRet(mock.totalReturn)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 折線圖 */}
+      <BacktestLineChart period={period} />
+
+      {/* 每日明細 */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+        <p className="text-xs font-semibold text-gray-500 mb-3">每日明細</p>
+        <div className="space-y-0.5">
+          <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+            <span className="text-[11px] text-gray-400 w-24">日期</span>
+            <span className="text-[11px] text-gray-400 text-right flex-1">當日損益</span>
+            <span className="text-[11px] text-gray-400 text-right w-16">報酬率</span>
+          </div>
+          {mock.daily.map(({ date, pnl, ret }) => (
+            <div key={date} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+              <span className="text-sm text-gray-600 w-24">{date}</span>
+              <span className={`text-sm font-medium text-right flex-1 ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                {pnl >= 0 ? '+' : ''}{formatNumber(Math.round(pnl))}
+              </span>
+              <span className={`text-sm font-medium text-right w-16 ${ret >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                {ret >= 0 ? '+' : ''}{(ret * 100).toFixed(2)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── 績效頁主體 ───────────────────────────────────────────────────────────────
 
 function PerformancePage({ onExitAdvanced }) {
@@ -2266,6 +2463,7 @@ function PerformancePage({ onExitAdvanced }) {
 
   const hasAnyData = allCashflows.length > 0 || Object.keys(ledger).length > 0
   const isTw = perfMarket === 'tw'
+  const isBacktest = perfMarket === 'backtest'
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -2277,7 +2475,7 @@ function PerformancePage({ onExitAdvanced }) {
         >退出進階模式</button>
       </div>
 
-      {/* 市場切換 */}
+      {/* 市場切換 + 近期回測 */}
       <div className="flex gap-2 mb-4">
         <button
           onClick={() => setPerfMarket('tw')}
@@ -2288,19 +2486,29 @@ function PerformancePage({ onExitAdvanced }) {
         <button
           onClick={() => setPerfMarket('us')}
           className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
-            !isTw ? 'bg-orange-400 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+            perfMarket === 'us' ? 'bg-orange-400 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
           }`}
         >美股 (USD)</button>
+        <button
+          onClick={() => setPerfMarket('backtest')}
+          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+            isBacktest ? 'bg-violet-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+          }`}
+        >近期回測</button>
       </div>
 
-      {!hasAnyData && (
+      {/* 近期回測頁 */}
+      {isBacktest && <BacktestView />}
+
+      {/* 原有台股／美股績效內容 */}
+      {!isBacktest && !hasAnyData && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center py-10">
           <p className="text-sm text-gray-400">尚無資料</p>
           <p className="text-xs text-gray-300 mt-1">請先在「記帳」頁新增現金流並儲存月底資產</p>
         </div>
       )}
 
-      {hasAnyData && (
+      {!isBacktest && hasAnyData && (
         <>
           {/* 線圖：只顯示目前所選市場的總資產走勢 */}
           <PerfLineChart data={isTw ? twMonthlyReturns : usMonthlyReturns} usd={!isTw} />
@@ -2343,8 +2551,8 @@ function PerformancePage({ onExitAdvanced }) {
         </>
       )}
 
-      {/* 各月紀錄（永遠顯示台股 + 美股，不受市場切換影響）*/}
-      {Object.keys(ledger).length > 0 && (
+      {/* 各月紀錄（在近期回測時隱藏）*/}
+      {!isBacktest && Object.keys(ledger).length > 0 && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <button
             className="w-full flex items-center justify-between"
