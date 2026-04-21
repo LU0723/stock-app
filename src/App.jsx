@@ -2466,7 +2466,7 @@ function BacktestView({ isTw }) {
             <span className="text-[11px] text-gray-400 text-right flex-1">當日損益</span>
             <span className="text-[11px] text-gray-400 text-right w-16">報酬率</span>
           </div>
-          {mock.daily.map(({ date, pnl, ret }) => (
+          {mock.daily.slice(0, 7).map(({ date, pnl, ret }) => (
             <div key={date} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
               <span className="text-sm text-gray-600 w-24">{date}</span>
               <span className={`text-sm font-medium text-right flex-1 ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
