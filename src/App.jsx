@@ -2209,11 +2209,17 @@ function PerfLineChart({ data, usd }) {
 
 // ─── 近期回測 ─────────────────────────────────────────────────────────────────
 
+// Mock 最早持股建立日（下輪改為從真實持股讀取）
+const MOCK_EARLIEST_HOLDING = '2025-12-01'
+
+function todayISOStr() {
+  return new Date().toISOString().slice(0, 10)
+}
+
 const BACKTEST_PERIODS = [
-  { label: '7天',  days: 7   },
-  { label: '30天', days: 30  },
-  { label: '90天', days: 90  },
-  { label: '1年',  days: 365 },
+  { label: '7天',  days: 7        },
+  { label: '30天', days: 30       },
+  { label: '自訂', days: 'custom' },
 ]
 
 const BACKTEST_MOCK = {
@@ -2244,52 +2250,33 @@ const BACKTEST_MOCK = {
       { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
     ],
   },
-  90: {
-    totalPnL: 289000, totalReturn: 0.1872,
+  custom: {
+    totalPnL: 56789, totalReturn: 0.0312,
     daily: [
-      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
-      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
-      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
-      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
-      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
-      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
-      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
-      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
-      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
-      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
-    ],
-  },
-  365: {
-    totalPnL: 1024800, totalReturn: 0.5423,
-    daily: [
-      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
-      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
-      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
-      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
-      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
-      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
-      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
-      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
-      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
-      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
+      { date: '2026/04/22', pnl:   8900, ret:  0.0063 },
+      { date: '2026/04/21', pnl:   5400, ret:  0.0038 },
+      { date: '2026/04/20', pnl:  -3200, ret: -0.0023 },
+      { date: '2026/04/17', pnl:   7100, ret:  0.0050 },
+      { date: '2026/04/16', pnl:   4200, ret:  0.0030 },
+      { date: '2026/04/15', pnl: -11200, ret: -0.0079 },
+      { date: '2026/04/14', pnl:  45589, ret:  0.0233 },
     ],
   },
 }
 
-function genMockCurve(days) {
-  const step = days <= 30 ? 1 : days <= 90 ? 3 : 7
-  const count = Math.ceil(days / step)
+function genMockCurve(n) {
   const pts = []
   let cum = 0
-  for (let i = 0; i <= count; i++) {
+  for (let i = 0; i <= n; i++) {
     cum += (Math.random() - 0.38) * 6000 + 2500
     pts.push(cum)
   }
   return pts
 }
 
-function BacktestLineChart({ period }) {
-  const pts = useMemo(() => genMockCurve(period), [period])
+function BacktestLineChart({ days }) {
+  const n = typeof days === 'number' ? days : 20
+  const pts = useMemo(() => genMockCurve(n), [n])
 
   const VW = 340, VH = 130
   const PAD = { top: 10, right: 12, bottom: 18, left: 52 }
@@ -2298,9 +2285,9 @@ function BacktestLineChart({ period }) {
 
   const minV = Math.min(...pts)
   const maxV = Math.max(...pts)
-  const rng = maxV - minV || 1
-  const lo = minV - rng * 0.05
-  const hi = maxV + rng * 0.05
+  const rng  = maxV - minV || 1
+  const lo   = minV - rng * 0.05
+  const hi   = maxV + rng * 0.05
   const span = hi - lo || 1
 
   const toX = i => PAD.left + (i / (pts.length - 1)) * cW
@@ -2324,25 +2311,110 @@ function BacktestLineChart({ period }) {
           )
         })}
         <polyline points={polyline} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinejoin="round" />
-        <circle
-          cx={toX(pts.length - 1).toFixed(1)}
-          cy={toY(pts[pts.length - 1]).toFixed(1)}
-          r="2.5" fill="#8b5cf6"
-        />
+        <circle cx={toX(pts.length - 1).toFixed(1)} cy={toY(pts[pts.length - 1]).toFixed(1)} r="2.5" fill="#8b5cf6" />
       </svg>
     </div>
   )
 }
 
+// Bottom sheet：自訂日期選擇
+function DatePickerSheet({ minDate, onConfirm, onCancel }) {
+  const today = todayISOStr()
+  const [start, setStart] = useState('')
+  const [end,   setEnd]   = useState('')
+  const canConfirm = start && end && start <= end
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      {/* 背景遮罩 */}
+      <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
+
+      {/* Sheet 本體 */}
+      <div className="relative bg-white rounded-t-2xl px-5 pt-4 pb-8 shadow-xl">
+        {/* 拖曳把手 */}
+        <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-5" />
+
+        <p className="text-sm font-semibold text-gray-800 mb-1">選擇回測區間</p>
+        <p className="text-[11px] text-gray-400 mb-4">
+          可選範圍：{minDate.replace(/-/g, '/')} ～ {today.replace(/-/g, '/')}
+          &nbsp;（依最早持股建立日限制）
+        </p>
+
+        <div className="space-y-3 mb-5">
+          <div>
+            <label className="text-xs text-gray-500 mb-1.5 block">開始日期</label>
+            <input
+              type="date"
+              value={start}
+              min={minDate}
+              max={end || today}
+              onChange={e => setStart(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:border-violet-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1.5 block">結束日期</label>
+            <input
+              type="date"
+              value={end}
+              min={start || minDate}
+              max={today}
+              onChange={e => setEnd(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:border-violet-400"
+            />
+          </div>
+        </div>
+
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 font-medium"
+          >取消</button>
+          <button
+            onClick={() => canConfirm && onConfirm(start, end)}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+              canConfirm ? 'bg-violet-500 text-white' : 'bg-gray-100 text-gray-300'
+            }`}
+          >確認</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BacktestView({ isTw }) {
-  const [period, setPeriod] = useState(30)
-  const mock       = BACKTEST_MOCK[period]
-  const pnlColor   = mock.totalPnL    >= 0 ? 'text-red-500' : 'text-green-600'
-  const retColor   = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
+  const [period,       setPeriod]       = useState(7)
+  const [showPicker,   setShowPicker]   = useState(false)
+  const [customRange,  setCustomRange]  = useState(null)   // { start, end } | null
+
   const accentClass = isTw ? 'text-sky-600' : 'text-orange-500'
   const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD）'
-  const fmtPnl = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
-  const fmtRet = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
+
+  const mock     = BACKTEST_MOCK[period] ?? BACKTEST_MOCK[7]
+  const pnlColor = mock.totalPnL    >= 0 ? 'text-red-500' : 'text-green-600'
+  const retColor = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
+  const fmtPnl   = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
+  const fmtRet   = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
+
+  // 自訂區間副標題
+  const customLabel = customRange
+    ? `${customRange.start.replace(/-/g, '/')} ～ ${customRange.end.replace(/-/g, '/')}`
+    : null
+
+  function handlePeriodClick(days) {
+    if (days === 'custom') {
+      setShowPicker(true)
+    } else {
+      setPeriod(days)
+      setCustomRange(null)
+    }
+  }
+
+  function handleConfirm(start, end) {
+    setShowPicker(false)
+    setPeriod('custom')
+    setCustomRange({ start, end })
+  }
 
   return (
     <>
@@ -2350,8 +2422,8 @@ function BacktestView({ isTw }) {
       <div className="flex gap-2 mb-4">
         {BACKTEST_PERIODS.map(({ label, days }) => (
           <button
-            key={days}
-            onClick={() => setPeriod(days)}
+            key={String(days)}
+            onClick={() => handlePeriodClick(days)}
             className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
               period === days
                 ? 'bg-violet-500 text-white shadow-sm'
@@ -2360,6 +2432,11 @@ function BacktestView({ isTw }) {
           >{label}</button>
         ))}
       </div>
+
+      {/* 自訂期間已選提示 */}
+      {period === 'custom' && customLabel && (
+        <p className="text-[11px] text-violet-500 text-center mb-3">{customLabel}</p>
+      )}
 
       {/* 摘要卡 */}
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
@@ -2378,7 +2455,7 @@ function BacktestView({ isTw }) {
       </div>
 
       {/* 折線圖 */}
-      <BacktestLineChart period={period} />
+      <BacktestLineChart days={period} />
 
       {/* 每日明細 */}
       <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
@@ -2402,6 +2479,15 @@ function BacktestView({ isTw }) {
           ))}
         </div>
       </div>
+
+      {/* 自訂日期 Bottom Sheet */}
+      {showPicker && (
+        <DatePickerSheet
+          minDate={MOCK_EARLIEST_HOLDING}
+          onConfirm={handleConfirm}
+          onCancel={() => setShowPicker(false)}
+        />
+      )}
     </>
   )
 }
