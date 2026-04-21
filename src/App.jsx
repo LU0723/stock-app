@@ -2376,10 +2376,13 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
     let cumPnL = 0, totalCost = 0, dailyPnL = 0, prevMV = 0
 
     for (const h of effective) {
-      const close = priceMap.get(h.symbol)?.get(day)
-      if (close == null) continue
-      cumPnL    += (close - h.avgCost) * h.shares
+      // 成本分母始終納入，避免缺資料日分母忽大忽小造成報酬率跳動
       totalCost += h.avgCost * h.shares
+
+      const close = priceMap.get(h.symbol)?.get(day)
+      if (close == null) continue   // 無收盤價：該股不計入損益，但成本已入分母
+
+      cumPnL += (close - h.avgCost) * h.shares
 
       const pc = prevClose(h.symbol, day)
       if (pc != null) {
