@@ -2334,11 +2334,13 @@ function BacktestLineChart({ period }) {
   )
 }
 
-function BacktestView() {
+function BacktestView({ isTw }) {
   const [period, setPeriod] = useState(30)
-  const mock = BACKTEST_MOCK[period]
-  const pnlColor = mock.totalPnL >= 0 ? 'text-red-500' : 'text-green-600'
-  const retColor = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
+  const mock       = BACKTEST_MOCK[period]
+  const pnlColor   = mock.totalPnL    >= 0 ? 'text-red-500' : 'text-green-600'
+  const retColor   = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
+  const accentClass = isTw ? 'text-sky-600' : 'text-orange-500'
+  const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD）'
   const fmtPnl = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
   const fmtRet = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
 
@@ -2361,7 +2363,7 @@ function BacktestView() {
 
       {/* 摘要卡 */}
       <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className="text-xs font-semibold text-violet-600 mb-3">回測摘要（mock）</p>
+        <p className={`text-xs font-semibold ${accentClass} mb-3`}>{title}（mock）</p>
         <div className="flex gap-4">
           <div className="flex-1 text-center">
             <p className="text-[11px] text-gray-400 mb-1">累積損益</p>
@@ -2409,6 +2411,7 @@ function BacktestView() {
 function PerformancePage({ onExitAdvanced }) {
   const [ledger] = useState(loadLedger)
   const [perfMarket, setPerfMarket] = useState('tw')
+  const [perfView,   setPerfView]   = useState('xirr')
 
   const allCashflows = useMemo(() =>
     Object.values(ledger)
@@ -2462,8 +2465,8 @@ function PerformancePage({ onExitAdvanced }) {
   )
 
   const hasAnyData = allCashflows.length > 0 || Object.keys(ledger).length > 0
-  const isTw = perfMarket === 'tw'
-  const isBacktest = perfMarket === 'backtest'
+  const isTw       = perfMarket === 'tw'
+  const isBacktest = perfView   === 'backtest'
 
   return (
     <div className="px-4 pt-12 pb-6">
@@ -2475,8 +2478,8 @@ function PerformancePage({ onExitAdvanced }) {
         >退出進階模式</button>
       </div>
 
-      {/* 市場切換 + 近期回測 */}
-      <div className="flex gap-2 mb-4">
+      {/* 第一列：市場切換 */}
+      <div className="flex gap-2 mb-2">
         <button
           onClick={() => setPerfMarket('tw')}
           className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
@@ -2486,19 +2489,31 @@ function PerformancePage({ onExitAdvanced }) {
         <button
           onClick={() => setPerfMarket('us')}
           className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
-            perfMarket === 'us' ? 'bg-orange-400 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+            !isTw ? 'bg-orange-400 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
           }`}
         >美股 (USD)</button>
+      </div>
+
+      {/* 第二列：視圖切換 */}
+      <div className="flex gap-2 mb-4">
         <button
-          onClick={() => setPerfMarket('backtest')}
-          className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
-            isBacktest ? 'bg-violet-500 text-white shadow-sm' : 'bg-white text-gray-500 border border-gray-200'
+          onClick={() => setPerfView('xirr')}
+          className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            !isBacktest
+              ? (isTw ? 'bg-sky-100 text-sky-700' : 'bg-orange-100 text-orange-700')
+              : 'bg-white text-gray-400 border border-gray-200'
+          }`}
+        >XIRR 績效</button>
+        <button
+          onClick={() => setPerfView('backtest')}
+          className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            isBacktest ? 'bg-violet-100 text-violet-700' : 'bg-white text-gray-400 border border-gray-200'
           }`}
         >近期回測</button>
       </div>
 
-      {/* 近期回測頁 */}
-      {isBacktest && <BacktestView />}
+      {/* 近期回測頁（跟隨市場） */}
+      {isBacktest && <BacktestView isTw={isTw} />}
 
       {/* 原有台股／美股績效內容 */}
       {!isBacktest && !hasAnyData && (
