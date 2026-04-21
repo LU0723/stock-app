@@ -2209,12 +2209,20 @@ function PerfLineChart({ data, usd }) {
 
 // ─── 近期回測 ─────────────────────────────────────────────────────────────────
 
-// Mock 最早持股建立日（下輪改為從真實持股讀取）
-const MOCK_EARLIEST_HOLDING = '2025-12-01'
+// Mock 最早持股建立日，台股 / 美股分開（下輪改為從真實持股讀取）
+const MOCK_EARLIEST_HOLDING = { tw: '2025-12-01', us: '2026-02-10' }
 
 function todayISOStr() {
   return new Date().toISOString().slice(0, 10)
 }
+
+function addDays(dateStr, n) {
+  const d = new Date(dateStr)
+  d.setDate(d.getDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+const MAX_BACKTEST_DAYS = 365
 
 const BACKTEST_PERIODS = [
   { label: '7天',  days: 7        },
@@ -2322,6 +2330,20 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
   const today = todayISOStr()
   const [start, setStart] = useState('')
   const [end,   setEnd]   = useState('')
+
+  // 結束日上限 = min(今天, 開始日 + 364天)，實現最多 365 天限制
+  const endMax = start
+    ? (addDays(start, MAX_BACKTEST_DAYS - 1) < today ? addDays(start, MAX_BACKTEST_DAYS - 1) : today)
+    : today
+
+  function handleStartChange(val) {
+    setStart(val)
+    // 若已選結束日超出新的上限，自動清除
+    if (end && (end < val || end > addDays(val, MAX_BACKTEST_DAYS - 1))) {
+      setEnd('')
+    }
+  }
+
   const canConfirm = start && end && start <= end
 
   return (
@@ -2336,11 +2358,10 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
 
         <p className="text-sm font-semibold text-gray-800 mb-1">選擇回測區間</p>
         <p className="text-[11px] text-gray-400 mb-4">
-          可選範圍：{minDate.replace(/-/g, '/')} ～ {today.replace(/-/g, '/')}
-          &nbsp;（依最早持股建立日限制）
+          可選範圍：{minDate.replace(/-/g, '/')} ～ {today.replace(/-/g, '/')}&nbsp;·&nbsp;最長 365 天
         </p>
 
-        <div className="space-y-3 mb-5">
+        <div className="space-y-3 mb-2">
           <div>
             <label className="text-xs text-gray-500 mb-1.5 block">開始日期</label>
             <input
@@ -2348,7 +2369,7 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
               value={start}
               min={minDate}
               max={end || today}
-              onChange={e => setStart(e.target.value)}
+              onChange={e => handleStartChange(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:border-violet-400"
             />
           </div>
@@ -2358,14 +2379,21 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
               type="date"
               value={end}
               min={start || minDate}
-              max={today}
+              max={endMax}
               onChange={e => setEnd(e.target.value)}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 bg-gray-50 focus:outline-none focus:border-violet-400"
             />
           </div>
         </div>
 
-        <div className="flex gap-3">
+        {/* 365 天限制提示（僅開始日已選時才顯示） */}
+        {start && (
+          <p className="text-[11px] text-violet-400 mb-4">
+            結束日最晚可選 {endMax.replace(/-/g, '/')}（最多 365 天）
+          </p>
+        )}
+
+        <div className="flex gap-3 mt-3">
           <button
             onClick={onCancel}
             className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 font-medium"
@@ -2386,6 +2414,17 @@ function BacktestView({ isTw }) {
   const [period,       setPeriod]       = useState(7)
   const [showPicker,   setShowPicker]   = useState(false)
   const [customRange,  setCustomRange]  = useState(null)   // { start, end } | null
+
+  // 台股 / 美股最早日期不同，切換市場時清除自訂區間
+  const minDate = MOCK_EARLIEST_HOLDING[isTw ? 'tw' : 'us']
+  const prevIsTwRef = useRef(isTw)
+  if (prevIsTwRef.current !== isTw) {
+    prevIsTwRef.current = isTw
+    if (period === 'custom') {
+      setPeriod(7)
+      setCustomRange(null)
+    }
+  }
 
   const accentClass = isTw ? 'text-sky-600' : 'text-orange-500'
   const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD）'
@@ -2483,7 +2522,7 @@ function BacktestView({ isTw }) {
       {/* 自訂日期 Bottom Sheet */}
       {showPicker && (
         <DatePickerSheet
-          minDate={MOCK_EARLIEST_HOLDING}
+          minDate={minDate}
           onConfirm={handleConfirm}
           onCancel={() => setShowPicker(false)}
         />
