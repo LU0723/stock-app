@@ -15,8 +15,8 @@ import { CSS } from '@dnd-kit/utilities'
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
 const DEFAULT_HOLDINGS = [
-  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 75,   price: 0, yesterdayClose: 0 },
-  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 1820, price: 0, yesterdayClose: 0 },
+  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 75,   price: 0, yesterdayClose: 0, buyDate: '2025-12-01' },
+  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 1820, price: 0, yesterdayClose: 0, buyDate: '2025-12-01' },
 ]
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -571,6 +571,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
     symbol:  initial?.symbol  ?? '',
     shares:  initial?.shares  ?? '',
     avgCost: initial?.avgCost ?? '',
+    buyDate: initial?.buyDate ?? new Date().toISOString().slice(0, 10),
   })
   const [isLookingUp, setIsLookingUp] = useState(false)
 
@@ -602,6 +603,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
       symbol:  form.symbol.trim().toUpperCase(),
       shares,
       avgCost,
+      buyDate: form.buyDate || new Date().toISOString().slice(0, 10),
     })
   }
 
@@ -647,6 +649,12 @@ function HoldingForm({ initial, onSave, onCancel }) {
                 placeholder="例：750" min="0.01" step="0.01"
                 className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
             </div>
+          </div>
+          <div>
+            <label className="text-xs text-white mb-1 block">開倉日期</label>
+            <input type="date" value={form.buyDate} onChange={e => set('buyDate', e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
+              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]" />
           </div>
           <p className="text-xs text-white">現價與昨收將在儲存後自動更新。</p>
           <div className="flex gap-2 mt-1">
@@ -2209,8 +2217,8 @@ function PerfLineChart({ data, usd }) {
 
 // ─── 近期回測 ─────────────────────────────────────────────────────────────────
 
-// Mock 最早持股建立日，台股 / 美股分開（下輪改為從真實持股讀取）
-const MOCK_EARLIEST_HOLDING = { tw: '2025-12-01', us: '2026-02-10' }
+// US 仍使用 mock；TW 最早日期從持股推算
+const MOCK_EARLIEST_HOLDING_US = '2026-02-10'
 
 function todayISOStr() {
   return new Date().toISOString().slice(0, 10)
@@ -2230,7 +2238,8 @@ const BACKTEST_PERIODS = [
   { label: '自訂', days: 'custom' },
 ]
 
-const BACKTEST_MOCK = {
+// 美股 mock（TW 改用真實資料）
+const BACKTEST_MOCK_US = {
   7: {
     totalPnL: 34560, totalReturn: 0.0245,
     daily: [
@@ -2242,6 +2251,7 @@ const BACKTEST_MOCK = {
       { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
       { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
     ],
+    chartPts: [0, 4810, 12210, 9010, 18810, 13610, 22260, 34560],
   },
   30: {
     totalPnL: 123456, totalReturn: 0.0845,
@@ -2257,6 +2267,7 @@ const BACKTEST_MOCK = {
       { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
       { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
     ],
+    chartPts: [0, 6186, 21386, 36586, 27686, 32496, 37306, 42116, 29816, 116376, 123456, 128266],
   },
   custom: {
     totalPnL: 56789, totalReturn: 0.0312,
@@ -2269,30 +2280,145 @@ const BACKTEST_MOCK = {
       { date: '2026/04/15', pnl: -11200, ret: -0.0079 },
       { date: '2026/04/14', pnl:  45589, ret:  0.0233 },
     ],
+    chartPts: [0, 45589, 34389, 38589, 35389, 42489, 47889, 56789],
   },
 }
 
-function genMockCurve(n) {
-  const pts = []
-  let cum = 0
-  for (let i = 0; i <= n; i++) {
-    cum += (Math.random() - 0.38) * 6000 + 2500
-    pts.push(cum)
-  }
-  return pts
+// ─── TW 歷史資料抓取 ──────────────────────────────────────────────────────────
+
+// 記憶體快取：key = "symbol-YYYYMM"，value = [{date:'YYYY-MM-DD', close:number}]
+const twHistoryCache = new Map()
+
+// 民國年 "115/04/07" → 西元 "2026-04-07"
+function parseTwseDate(roc) {
+  const [y, m, d] = roc.split('/')
+  return `${parseInt(y, 10) + 1911}-${m}-${d}`
 }
 
-function BacktestLineChart({ days }) {
-  const n = typeof days === 'number' ? days : 20
-  const pts = useMemo(() => genMockCurve(n), [n])
+// 抓單一股票單一月份的每日收盤價
+// yyyymm = "202604"，回傳 [{date, close}] 由早到晚排序
+async function fetchTwHistoryMonth(symbol, yyyymm) {
+  const key = `${symbol}-${yyyymm}`
+  if (twHistoryCache.has(key)) return twHistoryCache.get(key)
+  try {
+    const res = await fetch(`/api/tw-history?stockNo=${encodeURIComponent(symbol)}&yyyymm=${yyyymm}`)
+    if (!res.ok) return []
+    const data = await res.json()
+    if (data.stat !== 'OK' || !Array.isArray(data.data)) return []
+    const rows = data.data
+      .map(row => ({
+        date:  parseTwseDate(row[0]),
+        close: parseFloat(String(row[6]).replace(/,/g, '')),
+      }))
+      .filter(r => !isNaN(r.close))
+    rows.sort((a, b) => a.date.localeCompare(b.date))
+    twHistoryCache.set(key, rows)
+    return rows
+  } catch {
+    return []
+  }
+}
 
+// 推算需抓的所有月份（含 startDate 前一個月，以取得「前收」）
+// 回傳 ["202603", "202604", ...]
+function getRequiredMonths(startDate, endDate) {
+  const seen = new Set()
+  const result = []
+  const cur = new Date(startDate)
+  cur.setDate(1)
+  cur.setMonth(cur.getMonth() - 1)       // 多取前一個月（用於第一天的前收）
+  const last = new Date(endDate)
+  last.setDate(1)
+  while (cur <= last) {
+    const yyyymm = `${cur.getFullYear()}${String(cur.getMonth() + 1).padStart(2, '0')}`
+    if (!seen.has(yyyymm)) { seen.add(yyyymm); result.push(yyyymm) }
+    cur.setMonth(cur.getMonth() + 1)
+  }
+  return result
+}
+
+// 核心計算：依持股、日期區間、priceMap 計算每日回測結果
+// priceMap: Map<symbol, Map<dateStr, closePrice>>
+// 回傳 { totalPnL, totalReturn, chartPts, daily } 或 null
+function computeTwBacktest(holdings, startDate, endDate, priceMap) {
+  // 彙整所有有資料的交易日（含區間前，作為前收用）
+  const allDates = new Set()
+  for (const dateMap of priceMap.values()) {
+    for (const d of dateMap.keys()) allDates.add(d)
+  }
+  const sortedAllDates = [...allDates].sort()
+
+  // 區間內的交易日
+  const rangeDays = sortedAllDates.filter(d => d >= startDate && d <= endDate)
+  if (rangeDays.length === 0) return null
+
+  // 取某股票在指定日期之前最近一個有收盤價的日期之收盤價
+  function prevClose(symbol, date) {
+    const dateMap = priceMap.get(symbol)
+    if (!dateMap) return null
+    let best = null
+    for (const d of sortedAllDates) {
+      if (d >= date) break
+      if (dateMap.has(d)) best = dateMap.get(d)
+    }
+    return best
+  }
+
+  const dailyAsc = []   // 由舊到新，最後 reverse 給 UI 用
+  const chartPts = []
+  let lastCumPnL = 0
+  let lastCumReturn = 0
+
+  for (const day of rangeDays) {
+    const effective = holdings.filter(h => (h.buyDate || startDate) <= day)
+    if (effective.length === 0) continue
+
+    let cumPnL = 0, totalCost = 0, dailyPnL = 0, prevMV = 0
+
+    for (const h of effective) {
+      const close = priceMap.get(h.symbol)?.get(day)
+      if (close == null) continue
+      cumPnL    += (close - h.avgCost) * h.shares
+      totalCost += h.avgCost * h.shares
+
+      const pc = prevClose(h.symbol, day)
+      if (pc != null) {
+        dailyPnL += (close - pc) * h.shares
+        prevMV   += pc * h.shares
+      }
+      // 若無前收（第一個有效交易日），該股當日損益貢獻記為 0
+    }
+
+    const cumReturn = totalCost > 0 ? cumPnL / totalCost : 0
+    const dailyRet  = prevMV   > 0 ? dailyPnL / prevMV  : 0
+    lastCumPnL    = cumPnL
+    lastCumReturn = cumReturn
+
+    dailyAsc.push({ date: day.replace(/-/g, '/'), pnl: Math.round(dailyPnL), ret: dailyRet })
+    chartPts.push(Math.round(cumPnL))
+  }
+
+  if (dailyAsc.length === 0) return null
+
+  return {
+    totalPnL:    Math.round(lastCumPnL),
+    totalReturn: lastCumReturn,
+    chartPts,
+    daily: [...dailyAsc].reverse(),   // UI 顯示由新到舊
+  }
+}
+
+function BacktestLineChart({ pts }) {
+  // pts: 累積損益陣列（由舊到新）
   const VW = 340, VH = 130
   const PAD = { top: 10, right: 12, bottom: 18, left: 52 }
   const cW = VW - PAD.left - PAD.right
   const cH = VH - PAD.top - PAD.bottom
 
-  const minV = Math.min(...pts)
-  const maxV = Math.max(...pts)
+  const empty = !pts || pts.length < 2
+
+  const minV = empty ? 0 : Math.min(...pts)
+  const maxV = empty ? 1 : Math.max(...pts)
   const rng  = maxV - minV || 1
   const lo   = minV - rng * 0.05
   const hi   = maxV + rng * 0.05
@@ -2301,26 +2427,35 @@ function BacktestLineChart({ days }) {
   const toX = i => PAD.left + (i / (pts.length - 1)) * cW
   const toY = v => PAD.top + (1 - (v - lo) / span) * cH
 
-  const polyline = pts.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
+  const polyline = empty ? '' : pts.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(' ')
   const yTicks = [lo, (lo + hi) / 2, hi]
-  const fmtY = v => v >= 10000 ? `${(v / 10000).toFixed(1)}萬` : `${Math.round(v)}`
+  const fmtY = v => {
+    const abs = Math.abs(v)
+    return abs >= 10000 ? `${(v / 10000).toFixed(1)}萬` : `${Math.round(v)}`
+  }
 
   return (
     <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
       <p className="text-xs font-semibold text-gray-500 mb-2">近期回測走勢</p>
-      <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ height: 120 }}>
-        {yTicks.map((v, i) => {
-          const y = toY(v).toFixed(1)
-          return (
-            <g key={i}>
-              <line x1={PAD.left} y1={y} x2={VW - PAD.right} y2={y} stroke="#f0f0f0" strokeWidth="1" />
-              <text x={PAD.left - 4} y={parseFloat(y) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{fmtY(v)}</text>
-            </g>
-          )
-        })}
-        <polyline points={polyline} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinejoin="round" />
-        <circle cx={toX(pts.length - 1).toFixed(1)} cy={toY(pts[pts.length - 1]).toFixed(1)} r="2.5" fill="#8b5cf6" />
-      </svg>
+      {empty ? (
+        <div className="flex items-center justify-center" style={{ height: 120 }}>
+          <p className="text-xs text-gray-300">暫無資料</p>
+        </div>
+      ) : (
+        <svg viewBox={`0 0 ${VW} ${VH}`} className="w-full" style={{ height: 120 }}>
+          {yTicks.map((v, i) => {
+            const y = toY(v).toFixed(1)
+            return (
+              <g key={i}>
+                <line x1={PAD.left} y1={y} x2={VW - PAD.right} y2={y} stroke="#f0f0f0" strokeWidth="1" />
+                <text x={PAD.left - 4} y={parseFloat(y) + 4} textAnchor="end" fontSize="9" fill="#9ca3af">{fmtY(v)}</text>
+              </g>
+            )
+          })}
+          <polyline points={polyline} fill="none" stroke="#8b5cf6" strokeWidth="2" strokeLinejoin="round" />
+          <circle cx={toX(pts.length - 1).toFixed(1)} cy={toY(pts[pts.length - 1]).toFixed(1)} r="2.5" fill="#8b5cf6" />
+        </svg>
+      )}
     </div>
   )
 }
@@ -2410,13 +2545,26 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
   )
 }
 
-function BacktestView({ isTw }) {
-  const [period,       setPeriod]       = useState(7)
-  const [showPicker,   setShowPicker]   = useState(false)
-  const [customRange,  setCustomRange]  = useState(null)   // { start, end } | null
+function BacktestView({ isTw, twHoldings }) {
+  const [period,      setPeriod]      = useState(7)
+  const [showPicker,  setShowPicker]  = useState(false)
+  const [customRange, setCustomRange] = useState(null)   // { start, end } | null
 
-  // 台股 / 美股最早日期不同，切換市場時清除自訂區間
-  const minDate = MOCK_EARLIEST_HOLDING[isTw ? 'tw' : 'us']
+  // TW 模式：fetch 真實資料；US 模式：mock
+  const [twResult,  setTwResult]  = useState(null)  // computeTwBacktest 回傳值
+  const [isLoading, setIsLoading] = useState(false)
+  const [btError,   setBtError]   = useState(null)
+
+  // 從 TW 持股推算最早開倉日；若無持股使用 fallback
+  const earliestTwDate = useMemo(() => {
+    if (!twHoldings || twHoldings.length === 0) return '2025-12-01'
+    const dates = twHoldings.map(h => h.buyDate || '2025-12-01')
+    return dates.reduce((a, b) => (a < b ? a : b))
+  }, [twHoldings])
+
+  const minDate = isTw ? earliestTwDate : MOCK_EARLIEST_HOLDING_US
+
+  // 市場切換時清除自訂區間
   const prevIsTwRef = useRef(isTw)
   if (prevIsTwRef.current !== isTw) {
     prevIsTwRef.current = isTw
@@ -2426,27 +2574,77 @@ function BacktestView({ isTw }) {
     }
   }
 
+  // 計算本次回測的日期區間
+  const today = todayISOStr()
+  let startDate, endDate
+  if (period === 'custom' && customRange) {
+    startDate = customRange.start
+    endDate   = customRange.end
+  } else {
+    endDate   = today
+    const raw = addDays(today, -(period - 1))
+    startDate = raw < minDate ? minDate : raw
+  }
+
+  // TW 真實資料：period / customRange / twHoldings 變動時重算
+  useEffect(() => {
+    if (!isTw) return
+    if (!twHoldings || twHoldings.length === 0) {
+      setTwResult(null)
+      return
+    }
+
+    let cancelled = false
+    setIsLoading(true)
+    setBtError(null)
+    setTwResult(null)
+
+    async function run() {
+      try {
+        const months = getRequiredMonths(startDate, endDate)
+        const priceMap = new Map()
+
+        await Promise.all(
+          twHoldings.flatMap(h =>
+            months.map(async yyyymm => {
+              const rows = await fetchTwHistoryMonth(h.symbol, yyyymm)
+              if (!priceMap.has(h.symbol)) priceMap.set(h.symbol, new Map())
+              const dateMap = priceMap.get(h.symbol)
+              for (const { date, close } of rows) dateMap.set(date, close)
+            })
+          )
+        )
+
+        if (cancelled) return
+        const result = computeTwBacktest(twHoldings, startDate, endDate, priceMap)
+        setTwResult(result)
+      } catch (err) {
+        if (!cancelled) setBtError(err.message || '資料載入失敗')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+
+    run()
+    return () => { cancelled = true }
+  }, [isTw, twHoldings, startDate, endDate])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 顯示資料：TW 用真實結果，US 維持 mock
+  const usMock    = BACKTEST_MOCK_US[period] ?? BACKTEST_MOCK_US[7]
+  const display   = isTw ? twResult : usMock
   const accentClass = isTw ? 'text-sky-600' : 'text-orange-500'
-  const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD）'
+  const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD，mock）'
 
-  const mock     = BACKTEST_MOCK[period] ?? BACKTEST_MOCK[7]
-  const pnlColor = mock.totalPnL    >= 0 ? 'text-red-500' : 'text-green-600'
-  const retColor = mock.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'
-  const fmtPnl   = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
-  const fmtRet   = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
+  const fmtPnl = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
+  const fmtRet = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
 
-  // 自訂區間副標題
   const customLabel = customRange
     ? `${customRange.start.replace(/-/g, '/')} ～ ${customRange.end.replace(/-/g, '/')}`
     : null
 
   function handlePeriodClick(days) {
-    if (days === 'custom') {
-      setShowPicker(true)
-    } else {
-      setPeriod(days)
-      setCustomRange(null)
-    }
+    if (days === 'custom') { setShowPicker(true) }
+    else { setPeriod(days); setCustomRange(null) }
   }
 
   function handleConfirm(start, end) {
@@ -2477,47 +2675,84 @@ function BacktestView({ isTw }) {
         <p className="text-[11px] text-violet-500 text-center mb-3">{customLabel}</p>
       )}
 
-      {/* 摘要卡 */}
-      <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
-        <p className={`text-xs font-semibold ${accentClass} mb-3`}>{title}（mock）</p>
-        <div className="flex gap-4">
-          <div className="flex-1 text-center">
-            <p className="text-[11px] text-gray-400 mb-1">累積損益</p>
-            <p className={`text-base font-bold ${pnlColor}`}>{fmtPnl(mock.totalPnL)}</p>
-          </div>
-          <div className="w-px bg-gray-100" />
-          <div className="flex-1 text-center">
-            <p className="text-[11px] text-gray-400 mb-1">累積報酬率</p>
-            <p className={`text-base font-bold ${retColor}`}>{fmtRet(mock.totalReturn)}</p>
-          </div>
+      {/* 載入中 */}
+      {isTw && isLoading && (
+        <div className="bg-white rounded-2xl p-6 mb-4 shadow-sm border border-gray-100 flex items-center justify-center gap-2">
+          <svg className="animate-spin w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" />
+          </svg>
+          <span className="text-xs text-gray-400">載入歷史資料中…</span>
         </div>
-      </div>
+      )}
+
+      {/* 錯誤訊息 */}
+      {isTw && !isLoading && btError && (
+        <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-4 text-center">
+          <p className="text-xs text-red-400">{btError}</p>
+        </div>
+      )}
+
+      {/* 摘要卡 */}
+      {(!isTw || (!isLoading && !btError)) && (
+        <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
+          <p className={`text-xs font-semibold ${accentClass} mb-3`}>{title}</p>
+          {display ? (
+            <div className="flex gap-4">
+              <div className="flex-1 text-center">
+                <p className="text-[11px] text-gray-400 mb-1">累積損益</p>
+                <p className={`text-base font-bold ${display.totalPnL >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                  {fmtPnl(display.totalPnL)}
+                </p>
+              </div>
+              <div className="w-px bg-gray-100" />
+              <div className="flex-1 text-center">
+                <p className="text-[11px] text-gray-400 mb-1">累積報酬率</p>
+                <p className={`text-base font-bold ${display.totalReturn >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                  {fmtRet(display.totalReturn)}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-300 text-center py-3">
+              {isTw ? '此區間無交易資料' : '暫無資料'}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 折線圖 */}
-      <BacktestLineChart days={period} />
+      {(!isTw || (!isLoading && !btError)) && (
+        <BacktestLineChart pts={display?.chartPts ?? []} />
+      )}
 
       {/* 每日明細 */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-        <p className="text-xs font-semibold text-gray-500 mb-3">每日明細</p>
-        <div className="space-y-0.5">
-          <div className="flex justify-between items-center pb-2 border-b border-gray-100">
-            <span className="text-[11px] text-gray-400 w-24">日期</span>
-            <span className="text-[11px] text-gray-400 text-right flex-1">當日損益</span>
-            <span className="text-[11px] text-gray-400 text-right w-16">報酬率</span>
-          </div>
-          {mock.daily.slice(0, 7).map(({ date, pnl, ret }) => (
-            <div key={date} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
-              <span className="text-sm text-gray-600 w-24">{date}</span>
-              <span className={`text-sm font-medium text-right flex-1 ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                {pnl >= 0 ? '+' : ''}{formatNumber(Math.round(pnl))}
-              </span>
-              <span className={`text-sm font-medium text-right w-16 ${ret >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                {ret >= 0 ? '+' : ''}{(ret * 100).toFixed(2)}%
-              </span>
+      {(!isTw || (!isLoading && !btError)) && (
+        <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+          <p className="text-xs font-semibold text-gray-500 mb-3">每日明細</p>
+          {display && display.daily.length > 0 ? (
+            <div className="space-y-0.5">
+              <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+                <span className="text-[11px] text-gray-400 w-24">日期</span>
+                <span className="text-[11px] text-gray-400 text-right flex-1">當日損益</span>
+                <span className="text-[11px] text-gray-400 text-right w-16">報酬率</span>
+              </div>
+              {display.daily.slice(0, 7).map(({ date, pnl, ret }) => (
+                <div key={date} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 w-24">{date}</span>
+                  <span className={`text-sm font-medium text-right flex-1 ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    {pnl >= 0 ? '+' : ''}{formatNumber(Math.round(pnl))}
+                  </span>
+                  <span className={`text-sm font-medium text-right w-16 ${ret >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    {ret >= 0 ? '+' : ''}{(ret * 100).toFixed(2)}%
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
+          ) : (
+            <p className="text-xs text-gray-300 text-center py-3">此區間無明細</p>
+          )}
         </div>
-      </div>
+      )}
 
       {/* 自訂日期 Bottom Sheet */}
       {showPicker && (
@@ -2533,7 +2768,7 @@ function BacktestView({ isTw }) {
 
 // ─── 績效頁主體 ───────────────────────────────────────────────────────────────
 
-function PerformancePage({ onExitAdvanced }) {
+function PerformancePage({ onExitAdvanced, twHoldings }) {
   const [ledger] = useState(loadLedger)
   const [perfMarket, setPerfMarket] = useState('tw')
   const [perfView,   setPerfView]   = useState('xirr')
@@ -2638,7 +2873,7 @@ function PerformancePage({ onExitAdvanced }) {
       </div>
 
       {/* 近期回測頁（跟隨市場） */}
-      {isBacktest && <BacktestView isTw={isTw} />}
+      {isBacktest && <BacktestView isTw={isTw} twHoldings={twHoldings} />}
 
       {/* 原有台股／美股績效內容 */}
       {!isBacktest && !hasAnyData && (
@@ -3327,7 +3562,7 @@ export default function App() {
       {activePage === 'ledger' && <LedgerPage onExitAdvanced={handleExitAdvanced} />}
 
       {/* ── 績效 / XIRR 統計頁 ── */}
-      {activePage === 'performance' && <PerformancePage onExitAdvanced={handleExitAdvanced} />}
+      {activePage === 'performance' && <PerformancePage onExitAdvanced={handleExitAdvanced} twHoldings={holdings} />}
 
       {/* ── 新增 / 編輯 Modal ── */}
       {modal === 'add' && (
