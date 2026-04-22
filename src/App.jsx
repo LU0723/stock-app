@@ -2380,8 +2380,8 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
 
   const dailyAsc = []   // 由舊到新，最後 reverse 給 UI 用
   const chartPts = []
-  let lastCumPnL = 0
-  let lastCumReturn = 0
+  let periodPnL  = 0    // 區間內所有交易日的日損益加總
+  let startMV    = null // 區間第一個交易日的前收市值（報酬率分母）
 
   for (const day of rangeDays) {
     // 每日依 changes 推算各持股當天的有效狀態
@@ -2411,10 +2411,10 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
       // 若無前收（第一個有效交易日），該股當日損益貢獻記為 0
     }
 
-    const cumReturn = totalCost > 0 ? cumPnL / totalCost : 0
-    const dailyRet  = prevMV   > 0 ? dailyPnL / prevMV  : 0
-    lastCumPnL    = cumPnL
-    lastCumReturn = cumReturn
+    const dailyRet = prevMV > 0 ? dailyPnL / prevMV : 0
+    periodPnL += dailyPnL
+    // 區間第一個有前收的交易日 prevMV 作為期間報酬率分母
+    if (startMV === null && prevMV > 0) startMV = prevMV
 
     dailyAsc.push({ date: day.replace(/-/g, '/'), pnl: Math.round(dailyPnL), ret: dailyRet })
     chartPts.push(Math.round(cumPnL))
@@ -2422,9 +2422,15 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
 
   if (dailyAsc.length === 0) return null
 
+  // 期間報酬率：期間累積損益 / 期初市值
+  // 若期初無前收（持股首日即為期間首日），fallback 用最後一天的成本基礎
+  const periodReturn = startMV != null && startMV > 0
+    ? periodPnL / startMV
+    : (chartPts.length > 0 && dailyAsc.length > 0 ? periodPnL / (chartPts[chartPts.length - 1] + Math.abs(periodPnL) || 1) : 0)
+
   return {
-    totalPnL:    Math.round(lastCumPnL),
-    totalReturn: lastCumReturn,
+    totalPnL:    Math.round(periodPnL),
+    totalReturn: periodReturn,
     chartPts,
     daily: [...dailyAsc].reverse(),   // UI 顯示由新到舊
   }
