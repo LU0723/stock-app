@@ -2242,9 +2242,6 @@ function PerfLineChart({ data, usd }) {
 
 // ─── 近期回測 ─────────────────────────────────────────────────────────────────
 
-// US 仍使用 mock；TW 最早日期從持股推算
-const MOCK_EARLIEST_HOLDING_US = '2026-02-10'
-
 function todayISOStr() {
   return new Date().toISOString().slice(0, 10)
 }
@@ -2262,52 +2259,6 @@ const BACKTEST_PERIODS = [
   { label: '30天', days: 30       },
   { label: '自訂', days: 'custom' },
 ]
-
-// 美股 mock（TW 改用真實資料）
-const BACKTEST_MOCK_US = {
-  7: {
-    totalPnL: 34560, totalReturn: 0.0245,
-    daily: [
-      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
-      { date: '2026/04/21', pnl:   8650, ret:  0.0061 },
-      { date: '2026/04/20', pnl:  -5200, ret: -0.0037 },
-      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
-      { date: '2026/04/16', pnl:  -3200, ret: -0.0023 },
-      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
-      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
-    ],
-    chartPts: [0, 4810, 12210, 9010, 18810, 13610, 22260, 34560],
-  },
-  30: {
-    totalPnL: 123456, totalReturn: 0.0845,
-    daily: [
-      { date: '2026/04/22', pnl:  12300, ret:  0.0087 },
-      { date: '2026/04/21', pnl:  86560, ret:  0.0347 },
-      { date: '2026/04/20', pnl: -12300, ret: -0.0052 },
-      { date: '2026/04/17', pnl:   9800, ret:  0.0069 },
-      { date: '2026/04/16', pnl:  -5600, ret: -0.0040 },
-      { date: '2026/04/15', pnl:   7400, ret:  0.0052 },
-      { date: '2026/04/14', pnl:   4810, ret:  0.0034 },
-      { date: '2026/04/11', pnl:  -8900, ret: -0.0063 },
-      { date: '2026/04/10', pnl:  15200, ret:  0.0108 },
-      { date: '2026/04/09', pnl:   6186, ret:  0.0044 },
-    ],
-    chartPts: [0, 6186, 21386, 36586, 27686, 32496, 37306, 42116, 29816, 116376, 123456, 128266],
-  },
-  custom: {
-    totalPnL: 56789, totalReturn: 0.0312,
-    daily: [
-      { date: '2026/04/22', pnl:   8900, ret:  0.0063 },
-      { date: '2026/04/21', pnl:   5400, ret:  0.0038 },
-      { date: '2026/04/20', pnl:  -3200, ret: -0.0023 },
-      { date: '2026/04/17', pnl:   7100, ret:  0.0050 },
-      { date: '2026/04/16', pnl:   4200, ret:  0.0030 },
-      { date: '2026/04/15', pnl: -11200, ret: -0.0079 },
-      { date: '2026/04/14', pnl:  45589, ret:  0.0233 },
-    ],
-    chartPts: [0, 45589, 34389, 38589, 35389, 42489, 47889, 56789],
-  },
-}
 
 // ─── TW 歷史資料抓取 ──────────────────────────────────────────────────────────
 
@@ -2360,6 +2311,27 @@ function getRequiredMonths(startDate, endDate) {
     cur.setMonth(cur.getMonth() + 1)
   }
   return result
+}
+
+// ─── US 歷史資料抓取 ──────────────────────────────────────────────────────────
+
+// 記憶體快取：key = "symbol-YYYY-MM-DD"（當天），value = [{date, close}]
+const usHistoryCache = new Map()
+
+// 抓單一美股 1 年日線資料，回傳 [{date:'YYYY-MM-DD', close:number}] 由早到晚
+async function fetchUsHistory(symbol) {
+  const key = `${symbol}-${todayStr()}`
+  if (usHistoryCache.has(key)) return usHistoryCache.get(key)
+  try {
+    const res = await fetch(`/api/us-history?symbol=${encodeURIComponent(symbol)}`)
+    if (!res.ok) return []
+    const rows = await res.json()
+    if (!Array.isArray(rows)) return []
+    usHistoryCache.set(key, rows)
+    return rows
+  } catch {
+    return []
+  }
 }
 
 // 核心計算：依持股、日期區間、priceMap 計算每日回測結果
@@ -2600,12 +2572,16 @@ function BacktestView({ isTw, twHoldings }) {
   const [showPicker,  setShowPicker]  = useState(false)
   const [customRange, setCustomRange] = useState(null)   // { start, end } | null
 
-  // TW 模式：fetch 真實資料；US 模式：mock
-  const [twResult,  setTwResult]  = useState(null)  // computeTwBacktest 回傳值
+  // TW / US 都 fetch 真實資料
+  const [twResult,  setTwResult]  = useState(null)
+  const [usResult,  setUsResult]  = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [btError,   setBtError]   = useState(null)
 
-  // 從 TW 持股推算最早開倉日；若無持股使用 fallback
+  // US 持股：BacktestView 掛載時從 localStorage 讀一次；isTw 切換時重讀
+  const usHoldings = useMemo(() => isTw ? [] : loadUsHoldings(), [isTw])
+
+  // 從 TW 持股推算最早開倉日
   const earliestTwDate = useMemo(() => {
     if (!twHoldings || twHoldings.length === 0) return '2025-12-01'
     const dates = twHoldings.map(h => {
@@ -2615,7 +2591,17 @@ function BacktestView({ isTw, twHoldings }) {
     return dates.reduce((a, b) => (a < b ? a : b))
   }, [twHoldings])
 
-  const minDate = isTw ? earliestTwDate : MOCK_EARLIEST_HOLDING_US
+  // 從 US 持股推算最早開倉日
+  const earliestUsDate = useMemo(() => {
+    if (!usHoldings || usHoldings.length === 0) return '2025-01-01'
+    const dates = usHoldings.map(h => {
+      if (Array.isArray(h.changes) && h.changes.length > 0) return h.changes[0].date
+      return h.buyDate || '2025-01-01'
+    })
+    return dates.reduce((a, b) => (a < b ? a : b))
+  }, [usHoldings])
+
+  const minDate = isTw ? earliestTwDate : earliestUsDate
 
   // 市場切換時清除自訂區間
   const prevIsTwRef = useRef(isTw)
@@ -2682,11 +2668,51 @@ function BacktestView({ isTw, twHoldings }) {
     return () => { cancelled = true }
   }, [isTw, twHoldings, startDate, endDate])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 顯示資料：TW 用真實結果，US 維持 mock
-  const usMock    = BACKTEST_MOCK_US[period] ?? BACKTEST_MOCK_US[7]
-  const display   = isTw ? twResult : usMock
+  // US 真實資料：isTw=false 時從 Yahoo Finance 抓歷史日線，套用 changes 邏輯
+  useEffect(() => {
+    if (isTw) return
+    if (!usHoldings || usHoldings.length === 0) {
+      setUsResult(null)
+      return
+    }
+
+    let cancelled = false
+    setIsLoading(true)
+    setBtError(null)
+    setUsResult(null)
+
+    async function run() {
+      try {
+        const symbols  = [...new Set(usHoldings.map(h => h.symbol))]
+        const priceMap = new Map()
+
+        await Promise.all(
+          symbols.map(async sym => {
+            const rows    = await fetchUsHistory(sym)
+            const dateMap = new Map()
+            for (const { date, close } of rows) dateMap.set(date, close)
+            priceMap.set(sym, dateMap)
+          })
+        )
+
+        if (cancelled) return
+        const result = computeTwBacktest(usHoldings, startDate, endDate, priceMap)
+        setUsResult(result)
+      } catch (err) {
+        if (!cancelled) setBtError(err.message || '資料載入失敗')
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+
+    run()
+    return () => { cancelled = true }
+  }, [isTw, usHoldings, startDate, endDate])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 顯示資料：TW / US 均使用真實結果
+  const display     = isTw ? twResult : usResult
   const accentClass = isTw ? 'text-sky-600' : 'text-orange-500'
-  const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD，mock）'
+  const title       = isTw ? '台股近期回測（TWD）' : '美股近期回測（USD）'
 
   const fmtPnl = v => (v >= 0 ? '+' : '') + formatNumber(Math.round(v))
   const fmtRet = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%'
@@ -2729,7 +2755,7 @@ function BacktestView({ isTw, twHoldings }) {
       )}
 
       {/* 載入中 */}
-      {isTw && isLoading && (
+      {isLoading && (
         <div className="bg-white rounded-2xl p-6 mb-4 shadow-sm border border-gray-100 flex items-center justify-center gap-2">
           <svg className="animate-spin w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" />
@@ -2739,14 +2765,14 @@ function BacktestView({ isTw, twHoldings }) {
       )}
 
       {/* 錯誤訊息 */}
-      {isTw && !isLoading && btError && (
+      {!isLoading && btError && (
         <div className="bg-red-50 border border-red-100 rounded-2xl p-4 mb-4 text-center">
           <p className="text-xs text-red-400">{btError}</p>
         </div>
       )}
 
       {/* 摘要卡 */}
-      {(!isTw || (!isLoading && !btError)) && (
+      {!isLoading && !btError && (
         <div className="bg-white rounded-2xl p-4 mb-4 shadow-sm border border-gray-100">
           <p className={`text-xs font-semibold ${accentClass} mb-3`}>{title}</p>
           {display ? (
@@ -2766,20 +2792,18 @@ function BacktestView({ isTw, twHoldings }) {
               </div>
             </div>
           ) : (
-            <p className="text-xs text-gray-300 text-center py-3">
-              {isTw ? '此區間無交易資料' : '暫無資料'}
-            </p>
+            <p className="text-xs text-gray-300 text-center py-3">此區間無交易資料</p>
           )}
         </div>
       )}
 
       {/* 折線圖 */}
-      {(!isTw || (!isLoading && !btError)) && (
+      {!isLoading && !btError && (
         <BacktestLineChart pts={display?.chartPts ?? []} />
       )}
 
       {/* 每日明細 */}
-      {(!isTw || (!isLoading && !btError)) && (
+      {!isLoading && !btError && (
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
           <p className="text-xs font-semibold text-gray-500 mb-3">每日明細</p>
           {display && display.daily.length > 0 ? (
