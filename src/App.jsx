@@ -15,8 +15,8 @@ import { CSS } from '@dnd-kit/utilities'
 // ─── 預設持股資料（localStorage 沒資料時才使用）──────────────────────────────
 
 const DEFAULT_HOLDINGS = [
-  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 75,   price: 0, yesterdayClose: 0, buyDate: '2025-12-01' },
-  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 1820, price: 0, yesterdayClose: 0, buyDate: '2025-12-01' },
+  { symbol: '0050', name: '元大台灣50', shares: 1000, avgCost: 75,   price: 0, yesterdayClose: 0, buyDate: '2025-12-01', changes: [{ date: '2025-12-01', shares: 1000, avgCost: 75   }] },
+  { symbol: '2330', name: '台積電',     shares: 1000, avgCost: 1820, price: 0, yesterdayClose: 0, buyDate: '2025-12-01', changes: [{ date: '2025-12-01', shares: 1000, avgCost: 1820 }] },
 ]
 
 // ─── localStorage ────────────────────────────────────────────────────────────
@@ -44,10 +44,35 @@ function loadSortLocked() {
   return localStorage.getItem(SORT_LOCK_KEY) !== 'false'
 }
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function migrateHolding(h) {
+  if (Array.isArray(h.changes) && h.changes.length > 0) return h
+  const date = h.buyDate || todayStr()
+  return { ...h, changes: [{ date, shares: h.shares, avgCost: h.avgCost }] }
+}
+
+function migrateUsHolding(h) {
+  if (Array.isArray(h.changes) && h.changes.length > 0) return h
+  return { ...h, changes: [{ date: todayStr(), shares: h.shares, avgCost: h.avgCost }] }
+}
+
+function applyChange(existing, shares, avgCost) {
+  const today = todayStr()
+  const prev  = existing.changes ?? [{ date: existing.buyDate || today, shares: existing.shares, avgCost: existing.avgCost }]
+  const last  = prev[prev.length - 1]
+  const changes = (last && last.date === today)
+    ? [...prev.slice(0, -1), { date: today, shares, avgCost }]
+    : [...prev,              { date: today, shares, avgCost }]
+  return { ...existing, shares, avgCost, changes }
+}
+
 function loadHoldings() {
   try {
     const saved = localStorage.getItem(STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) return JSON.parse(saved).map(migrateHolding)
   } catch {}
   return DEFAULT_HOLDINGS
 }
@@ -71,7 +96,7 @@ function saveWatchlist(list) {
 function loadUsHoldings() {
   try {
     const saved = localStorage.getItem(US_HOLDINGS_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) return JSON.parse(saved).map(migrateUsHolding)
   } catch {}
   return []
 }
@@ -1199,7 +1224,7 @@ function BackupModal({ onClose }) {
     } catch {}
 
     const backup = {
-      version:    3,
+      version:    4,
       exportedAt: now.toISOString(),
       holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY)     || '[]'),
       watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]'),
@@ -1237,7 +1262,7 @@ function BackupModal({ onClose }) {
         }
 
         // 還原台股持股 + 自選股（必要欄位）
-        localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings))
+        localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings.map(migrateHolding)))
         localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist))
         if (data.sortLocked !== undefined) {
           localStorage.setItem(SORT_LOCK_KEY, String(data.sortLocked))
@@ -1255,7 +1280,7 @@ function BackupModal({ onClose }) {
 
         // 還原美股持股（v3+；舊版備份無此欄位時略過，不清除現有資料）
         if (Array.isArray(data.usHoldings)) {
-          localStorage.setItem(US_HOLDINGS_KEY, JSON.stringify(data.usHoldings))
+          localStorage.setItem(US_HOLDINGS_KEY, JSON.stringify(data.usHoldings.map(migrateUsHolding)))
         }
         if (data.usAccountNames !== undefined && typeof data.usAccountNames === 'object') {
           localStorage.setItem(US_ACCOUNT_NAMES_KEY, JSON.stringify(data.usAccountNames))
@@ -3192,14 +3217,25 @@ function UsHoldingsPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAdd(newHolding) {
-    const next = [...holdings, newHolding]
+    const withChanges = {
+      ...newHolding,
+      changes: [{ date: todayStr(), shares: newHolding.shares, avgCost: newHolding.avgCost }],
+    }
+    const next = [...holdings, withChanges]
     updateHoldings(next)
     setModal(null)
     await refreshPrices(next)
   }
 
   function handleEdit(updatedHolding) {
-    const next = holdings.map((h, i) => i === modal ? updatedHolding : h)
+    const existing = holdings[modal]
+    const merged   = applyChange(
+      { ...existing, name: updatedHolding.name, symbol: updatedHolding.symbol,
+        price: updatedHolding.price, previousClose: updatedHolding.previousClose },
+      updatedHolding.shares,
+      updatedHolding.avgCost,
+    )
+    const next = holdings.map((h, i) => i === modal ? merged : h)
     updateHoldings(next)
     setModal(null)
   }
@@ -3480,14 +3516,27 @@ export default function App() {
   }, [normalTab, advancedTab, advancedMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleAdd(newHolding) {
-    const newHoldings = [...holdings, newHolding]
+    const date = newHolding.buyDate || todayStr()
+    const withChanges = {
+      ...newHolding,
+      buyDate: date,
+      changes: [{ date, shares: newHolding.shares, avgCost: newHolding.avgCost }],
+    }
+    const newHoldings = [...holdings, withChanges]
     updateHoldings(newHoldings)
     setModal(null)
     await refreshPrices(newHoldings)
   }
 
   function handleEdit(updatedHolding) {
-    const updated = holdings.map((h, i) => i === modal ? updatedHolding : h)
+    const existing = holdings[modal]
+    const merged   = applyChange(
+      { ...existing, name: updatedHolding.name, symbol: updatedHolding.symbol,
+        price: updatedHolding.price, yesterdayClose: updatedHolding.yesterdayClose },
+      updatedHolding.shares,
+      updatedHolding.avgCost,
+    )
+    const updated = holdings.map((h, i) => i === modal ? merged : h)
     updateHoldings(updated)
     setModal(null)
   }
