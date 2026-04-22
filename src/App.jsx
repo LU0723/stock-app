@@ -2381,7 +2381,6 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
   const dailyAsc = []   // 由舊到新，最後 reverse 給 UI 用
   const chartPts = []
   let periodPnL  = 0    // 區間內所有交易日的日損益加總
-  let startMV    = null // 區間第一個交易日的前收市值（報酬率分母）
 
   for (const day of rangeDays) {
     // 每日依 changes 推算各持股當天的有效狀態
@@ -2413,8 +2412,6 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
 
     const dailyRet = prevMV > 0 ? dailyPnL / prevMV : 0
     periodPnL += dailyPnL
-    // 區間第一個有前收的交易日 prevMV 作為期間報酬率分母
-    if (startMV === null && prevMV > 0) startMV = prevMV
 
     dailyAsc.push({ date: day.replace(/-/g, '/'), pnl: Math.round(dailyPnL), ret: dailyRet })
     chartPts.push(Math.round(cumPnL))
@@ -2422,11 +2419,34 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
 
   if (dailyAsc.length === 0) return null
 
+  // 期初市值：各持股獨立計算，避免某股缺前一月資料時整體分母失真
+  // 每支股票：優先取 firstDay 的 prevClose；若無則 fallback 用 firstDay 當天或之後最近收盤
+  const firstDay = rangeDays.find(d => holdings.some(h => effectiveState(h, d) !== null))
+  let startMV = 0
+  if (firstDay) {
+    for (const h of holdings) {
+      const state = effectiveState(h, firstDay)
+      if (!state) continue
+      const pc = prevClose(h.symbol, firstDay)
+      if (pc != null) {
+        startMV += pc * state.shares
+      } else {
+        // fallback：prevClose 取不到（如前月資料缺失），用首個有收盤的日期之收盤價
+        const dateMap = priceMap.get(h.symbol)
+        if (dateMap) {
+          for (const d of sortedAllDates) {
+            if (d >= firstDay && dateMap.has(d)) {
+              startMV += dateMap.get(d) * state.shares
+              break
+            }
+          }
+        }
+      }
+    }
+  }
+
   // 期間報酬率：期間累積損益 / 期初市值
-  // 若期初無前收（持股首日即為期間首日），fallback 用最後一天的成本基礎
-  const periodReturn = startMV != null && startMV > 0
-    ? periodPnL / startMV
-    : (chartPts.length > 0 && dailyAsc.length > 0 ? periodPnL / (chartPts[chartPts.length - 1] + Math.abs(periodPnL) || 1) : 0)
+  const periodReturn = startMV > 0 ? periodPnL / startMV : 0
 
   return {
     totalPnL:    Math.round(periodPnL),
