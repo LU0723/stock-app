@@ -2389,30 +2389,52 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
     return best
   }
 
+  // 取某持股在指定日當天的有效 { shares, avgCost }
+  // 以 changes 為主；若無 changes 則 fallback 到舊欄位（相容舊格式）
+  function effectiveState(h, day) {
+    if (Array.isArray(h.changes) && h.changes.length > 0) {
+      const sorted = h.changes.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      let state = null
+      for (const c of sorted) {
+        if (c.date <= day) state = c
+        else break
+      }
+      return state   // null 表示該日尚未持有
+    }
+    // fallback：舊格式無 changes，以 buyDate 判斷開始日
+    const start = h.buyDate || startDate
+    return start <= day ? { shares: h.shares, avgCost: h.avgCost } : null
+  }
+
   const dailyAsc = []   // 由舊到新，最後 reverse 給 UI 用
   const chartPts = []
   let lastCumPnL = 0
   let lastCumReturn = 0
 
   for (const day of rangeDays) {
-    const effective = holdings.filter(h => (h.buyDate || startDate) <= day)
-    if (effective.length === 0) continue
+    // 每日依 changes 推算各持股當天的有效狀態
+    const positions = holdings
+      .map(h => ({ symbol: h.symbol, state: effectiveState(h, day) }))
+      .filter(p => p.state !== null)
+
+    if (positions.length === 0) continue
 
     let cumPnL = 0, totalCost = 0, dailyPnL = 0, prevMV = 0
 
-    for (const h of effective) {
+    for (const { symbol, state } of positions) {
+      const { shares, avgCost } = state
       // 成本分母始終納入，避免缺資料日分母忽大忽小造成報酬率跳動
-      totalCost += h.avgCost * h.shares
+      totalCost += avgCost * shares
 
-      const close = priceMap.get(h.symbol)?.get(day)
+      const close = priceMap.get(symbol)?.get(day)
       if (close == null) continue   // 無收盤價：該股不計入損益，但成本已入分母
 
-      cumPnL += (close - h.avgCost) * h.shares
+      cumPnL += (close - avgCost) * shares
 
-      const pc = prevClose(h.symbol, day)
+      const pc = prevClose(symbol, day)
       if (pc != null) {
-        dailyPnL += (close - pc) * h.shares
-        prevMV   += pc * h.shares
+        dailyPnL += (close - pc) * shares
+        prevMV   += pc * shares
       }
       // 若無前收（第一個有效交易日），該股當日損益貢獻記為 0
     }
@@ -2586,7 +2608,10 @@ function BacktestView({ isTw, twHoldings }) {
   // 從 TW 持股推算最早開倉日；若無持股使用 fallback
   const earliestTwDate = useMemo(() => {
     if (!twHoldings || twHoldings.length === 0) return '2025-12-01'
-    const dates = twHoldings.map(h => h.buyDate || '2025-12-01')
+    const dates = twHoldings.map(h => {
+      if (Array.isArray(h.changes) && h.changes.length > 0) return h.changes[0].date
+      return h.buyDate || '2025-12-01'
+    })
     return dates.reduce((a, b) => (a < b ? a : b))
   }, [twHoldings])
 
