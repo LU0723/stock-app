@@ -694,10 +694,37 @@ function HoldingForm({ initial, onSave, onCancel }) {
   )
 }
 
+// ─── Confirm Delete Modal ─────────────────────────────────────────────────────
+
+function ConfirmDeleteModal({ title, message, onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center px-6" onClick={onCancel}>
+      <div
+        className="w-full max-w-xs bg-white rounded-2xl px-5 pt-5 pb-4"
+        onClick={e => e.stopPropagation()}
+      >
+        <h2 className="text-base font-semibold text-gray-900 mb-1">{title}</h2>
+        <p className="text-sm text-gray-500 mb-5">{message}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+          >取消</button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2.5 rounded-xl bg-red-500 text-sm text-white font-medium hover:bg-red-600 transition-colors"
+          >刪除</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Stock Row ────────────────────────────────────────────────────────────────
 
 function StockRow({ stock, onEdit, onDelete }) {
   const [showActions, setShowActions] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   return (
     <div className="border-b border-gray-200 last:border-b-0">
       <div className="px-4 pt-3.5 pb-3" onClick={() => setShowActions(prev => !prev)}>
@@ -750,9 +777,17 @@ function StockRow({ stock, onEdit, onDelete }) {
             onClick={() => stock.code && window.open(`https://tw.stock.yahoo.com/quote/${stock.code}.TW/technical-analysis`, '_blank', 'noopener,noreferrer')}
             className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
           <div className="w-px bg-gray-200" />
-          <button onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
+          <button onClick={() => setShowDeleteModal(true)}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
+      )}
+      {showDeleteModal && (
+        <ConfirmDeleteModal
+          title="刪除持股"
+          message="確定要刪除這筆持股嗎？"
+          onConfirm={() => { setShowDeleteModal(false); onDelete() }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
       )}
     </div>
   )
@@ -1084,6 +1119,7 @@ function WatchlistPage() {
 
 function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
   const [showActions, setShowActions] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
   // 從 price / yesterdayClose 計算漲跌
   const hasPrice    = item.price > 0 && item.yesterdayClose > 0
@@ -1140,11 +1176,19 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
           </button>
           <div className="w-px bg-gray-100" />
           <button
-            onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
+            onClick={() => setShowDeleteModal(true)}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">
             刪除
           </button>
         </div>
+      )}
+      {showDeleteModal && (
+        <ConfirmDeleteModal
+          title="刪除自選股"
+          message="確定要刪除這檔自選股嗎？"
+          onConfirm={() => { setShowDeleteModal(false); onDelete() }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
       )}
     </div>
   )
@@ -3192,6 +3236,7 @@ function UsHoldingForm({ initial, onSave, onCancel }) {
 
 function UsStockRow({ stock, onEdit, onDelete }) {
   const [showActions, setShowActions] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
   const sharesStr = stock.shares % 1 === 0
     ? stock.shares.toLocaleString('zh-TW')
     : stock.shares.toLocaleString('zh-TW', { maximumFractionDigits: 6 })
@@ -3243,9 +3288,17 @@ function UsStockRow({ stock, onEdit, onDelete }) {
           <button
             className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
           <div className="w-px bg-gray-200" />
-          <button onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
+          <button onClick={() => setShowDeleteModal(true)}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
+      )}
+      {showDeleteModal && (
+        <ConfirmDeleteModal
+          title="刪除持股"
+          message="確定要刪除這筆持股嗎？"
+          onConfirm={() => { setShowDeleteModal(false); onDelete() }}
+          onCancel={() => setShowDeleteModal(false)}
+        />
       )}
     </div>
   )
