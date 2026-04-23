@@ -750,7 +750,7 @@ function StockRow({ stock, onEdit, onDelete }) {
             onClick={() => stock.code && window.open(`https://tw.stock.yahoo.com/quote/${stock.code}.TW/technical-analysis`, '_blank', 'noopener,noreferrer')}
             className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
           <div className="w-px bg-gray-200" />
-          <button onClick={() => onDelete()}
+          <button onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
       )}
@@ -1140,7 +1140,7 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
           </button>
           <div className="w-px bg-gray-100" />
           <button
-            onClick={() => onDelete()}
+            onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">
             刪除
           </button>
@@ -3243,7 +3243,7 @@ function UsStockRow({ stock, onEdit, onDelete }) {
           <button
             className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
           <div className="w-px bg-gray-200" />
-          <button onClick={() => onDelete()}
+          <button onClick={() => { if (window.confirm('確定要刪除這檔股票嗎？')) onDelete() }}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
       )}
