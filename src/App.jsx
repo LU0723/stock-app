@@ -1052,12 +1052,23 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 加權指數列 */}
-      <div className="border-b border-gray-100">
-        <div className="px-4 pt-2 pb-0.5">
-          <p className="text-[10px] text-gray-600 uppercase tracking-wider">大盤指數</p>
+      {/* 加權指數卡片 */}
+      <div className="px-4 pt-3 pb-2">
+        <div
+          className="bg-white rounded-2xl border border-gray-200 overflow-hidden cursor-pointer active:bg-gray-100 transition-colors"
+          onClick={() => window.open('https://tw.stock.yahoo.com/t/idx.php', '_blank', 'noopener,noreferrer')}
+        >
+          <div className="flex items-center px-4 pt-2.5 pb-0">
+            <p className="text-[10px] text-gray-500 uppercase tracking-wider flex-1">大盤指數</p>
+            <div className="flex items-center gap-0.5 text-gray-400">
+              <span className="text-[10px]">查看 K 線</span>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </div>
+          </div>
+          <WatchlistRow item={taiex} fixed />
         </div>
-        <WatchlistRow item={taiex} fixed />
       </div>
 
       {/* 自選清單標題 + 鎖定按鈕 + 新增按鈕 */}
