@@ -746,6 +746,9 @@ function StockRow({ stock, onEdit, onDelete }) {
           <button onClick={() => { setShowActions(false); onEdit() }}
             className="flex-1 py-2.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors">編輯</button>
           <div className="w-px bg-gray-200" />
+          <button
+            className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
+          <div className="w-px bg-gray-200" />
           <button onClick={() => onDelete()}
             className="flex-1 py-2.5 text-xs text-red-500 hover:bg-red-50 transition-colors">刪除</button>
         </div>
@@ -1130,9 +1133,8 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
       {showActions && !fixed && (
         <div className="flex border-t border-gray-100">
           <button
-            onClick={() => setShowActions(false)}
-            className="flex-1 py-2.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors">
-            取消
+            className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">
+            K線
           </button>
           <div className="w-px bg-gray-100" />
           <button
