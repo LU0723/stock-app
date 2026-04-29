@@ -1179,23 +1179,26 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
         {/* 拖拉把手（手動排序模式才會傳入） */}
         {dragHandle}
 
-        {/* 左：名稱 + 代號 + 漲停/跌停標示 */}
+        {/* 左：名稱 + 代號 */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 leading-tight">
-            <p className="text-base font-medium text-gray-900">{item.name}</p>
-            {isLimitUp   && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-600">漲停</span>}
-            {isLimitDown && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-green-100 text-green-700">跌停</span>}
-          </div>
+          <p className="text-base font-medium text-gray-900 leading-tight">{item.name}</p>
           <p className="text-xs text-gray-600 mt-0.5">{item.symbol}</p>
         </div>
 
-        {/* 股價 */}
+        {/* 股價：漲停→紅底白字色塊、跌停→綠底白字色塊、一般→原色 */}
         <div className="w-24 text-right">
-          <p className={`text-lg font-semibold ${changeColor}`}>
-            {hasPrice
-              ? (fixed ? item.price.toLocaleString() : item.price.toFixed(2))
-              : '--'}
-          </p>
+          {isLimitUp || isLimitDown ? (
+            <span className={`inline-block text-lg font-semibold text-white rounded-md px-2 py-0.5 tabular-nums
+              ${isLimitUp ? 'bg-red-500' : 'bg-green-600'}`}>
+              {fixed ? item.price.toLocaleString() : item.price.toFixed(2)}
+            </span>
+          ) : (
+            <p className={`text-lg font-semibold ${changeColor}`}>
+              {hasPrice
+                ? (fixed ? item.price.toLocaleString() : item.price.toFixed(2))
+                : '--'}
+            </p>
+          )}
         </div>
 
         {/* 漲跌點 + 漲跌幅% */}
