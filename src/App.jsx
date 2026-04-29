@@ -282,15 +282,26 @@ async function fetchStockMap(symbols) {
   const map = {}
   for (const item of items) {
     if (!item.c) continue
-    const yc   = parseFloat(item.y)
+    const yc    = parseFloat(item.y)
     const rawZ  = item.z !== '-' ? parseFloat(item.z) : null
     const mid   = (rawZ === null) ? bidAskMid(item.a, item.b) : null
     const price = (rawZ !== null && !isNaN(rawZ)) ? rawZ : (mid ?? null)
     if (price === null && isNaN(yc)) continue
+
+    // 漲停/跌停價（除息日：兩值平均 = 除息後當日參考價，非除息日 ≈ 昨收）
+    const limitUp   = parseFloat((item.u || '').split('_')[0])
+    const limitDown = parseFloat((item.w || '').split('_')[0])
+    const referencePrice = (!isNaN(limitUp) && limitUp > 0 && !isNaN(limitDown) && limitDown > 0)
+      ? (limitUp + limitDown) / 2
+      : (!isNaN(yc) ? yc : 0)
+
     map[item.c] = {
-      name:          item.n,
+      name:           item.n,
       price,                               // null = 完全無法估算現價
       yesterdayClose: !isNaN(yc) ? yc : 0,
+      referencePrice,
+      limitUp:   (!isNaN(limitUp)   && limitUp   > 0) ? limitUp   : null,
+      limitDown: (!isNaN(limitDown) && limitDown  > 0) ? limitDown : null,
     }
   }
   return map
@@ -381,14 +392,16 @@ async function fetchPrices(holdings) {
     // price: 有即時成交價用它；否則保留已存價格（若從未有資料才用昨收補底）
     const price = found.price !== null ? found.price
                 : (h.price > 0 ? h.price : found.yesterdayClose)
-    return { ...h, price, yesterdayClose: found.yesterdayClose }
+    return { ...h, price, yesterdayClose: found.yesterdayClose, referencePrice: found.referencePrice }
   })
 }
 
 // ─── 計算邏輯 ─────────────────────────────────────────────────────────────────
 
 function calcStock(h) {
-  if (h.price === 0 || h.yesterdayClose === 0) {
+  // 除息日用 referencePrice（漲跌停均值）而非昨收，避免顯示異常跌幅
+  const refPrice = h.referencePrice ?? h.yesterdayClose
+  if (h.price === 0 || refPrice === 0) {
     return {
       code: h.symbol, name: h.name, shares: h.shares, avgCost: h.avgCost,
       price: h.price, changePercent: 0, todayPnL: 0, totalPnL: 0, returnRate: 0,
@@ -400,8 +413,8 @@ function calcStock(h) {
     shares: h.shares,
     avgCost: h.avgCost,
     price: h.price,
-    changePercent: ((h.price - h.yesterdayClose) / h.yesterdayClose) * 100,
-    todayPnL:  Math.round((h.price - h.yesterdayClose) * h.shares),
+    changePercent: ((h.price - refPrice) / refPrice) * 100,
+    todayPnL:  Math.round((h.price - refPrice) * h.shares),
     totalPnL:  Math.round((h.price - h.avgCost) * h.shares),
     returnRate: ((h.price - h.avgCost) / h.avgCost) * 100,
   }
@@ -413,7 +426,7 @@ function calcSummary(stocks, holdings) {
   }
   const totalCost      = holdings.reduce((sum, h) => sum + h.avgCost * h.shares, 0)
   const marketValue    = holdings.reduce((sum, h) => sum + h.price   * h.shares, 0)
-  const yesterdayValue = holdings.reduce((sum, h) => sum + h.yesterdayClose * h.shares, 0)
+  const yesterdayValue = holdings.reduce((sum, h) => sum + (h.referencePrice ?? h.yesterdayClose) * h.shares, 0)
   const todayPnL       = stocks.reduce((sum, s) => sum + s.todayPnL, 0)
   const totalPnL       = stocks.reduce((sum, s) => sum + s.totalPnL, 0)
   return {
@@ -885,10 +898,13 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
         return
       }
       onSave({
-        symbol:        sym,
-        name:          info.name || name.trim() || sym,
-        price:         info.price,
+        symbol:         sym,
+        name:           info.name || name.trim() || sym,
+        price:          info.price,
         yesterdayClose: info.yesterdayClose,
+        referencePrice: info.referencePrice,
+        limitUp:        info.limitUp,
+        limitDown:      info.limitDown,
       })
     } catch {
       setError('查詢失敗，請稍後再試')
@@ -1001,7 +1017,14 @@ function WatchlistPage() {
         if (!found) return item
         const price = found.price !== null ? found.price
                     : (item.price > 0 ? item.price : found.yesterdayClose)
-        return { ...item, price, yesterdayClose: found.yesterdayClose }
+        return {
+          ...item,
+          price,
+          yesterdayClose: found.yesterdayClose,
+          referencePrice: found.referencePrice,
+          limitUp:        found.limitUp,
+          limitDown:      found.limitDown,
+        }
       })
       setList(updated)
       saveWatchlist(updated)
@@ -1132,15 +1155,20 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
   const [showActions, setShowActions] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
-  // 從 price / yesterdayClose 計算漲跌
-  const hasPrice    = item.price > 0 && item.yesterdayClose > 0
-  const changeAmt   = hasPrice ? item.price - item.yesterdayClose : 0
-  const changePct   = hasPrice ? (changeAmt / item.yesterdayClose) * 100 : 0
+  // 除息日用 referencePrice（漲跌停均值）而非昨收，避免顯示異常跌幅
+  const refPrice    = item.referencePrice ?? item.yesterdayClose
+  const hasPrice    = item.price > 0 && refPrice > 0
+  const changeAmt   = hasPrice ? item.price - refPrice : 0
+  const changePct   = hasPrice ? (changeAmt / refPrice) * 100 : 0
   const changeColor = hasPrice
     ? (changeAmt > 0 ? 'text-red-500' : changeAmt < 0 ? 'text-green-600' : 'text-gray-400')
     : 'text-gray-300'
   const arrow = changeAmt > 0 ? '▲' : changeAmt < 0 ? '▼' : ''
   const sign  = changeAmt > 0 ? '+' : ''
+
+  // 漲停/跌停判定
+  const isLimitUp   = !fixed && item.limitUp   > 0 && item.price >= item.limitUp
+  const isLimitDown = !fixed && item.limitDown  > 0 && item.price <= item.limitDown
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
@@ -1151,9 +1179,13 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
         {/* 拖拉把手（手動排序模式才會傳入） */}
         {dragHandle}
 
-        {/* 左：名稱 + 代號 */}
+        {/* 左：名稱 + 代號 + 漲停/跌停標示 */}
         <div className="flex-1 min-w-0">
-          <p className="text-base font-medium text-gray-900 leading-tight">{item.name}</p>
+          <div className="flex items-center gap-1.5 leading-tight">
+            <p className="text-base font-medium text-gray-900">{item.name}</p>
+            {isLimitUp   && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-red-100 text-red-600">漲停</span>}
+            {isLimitDown && <span className="text-[10px] font-bold px-1 py-0.5 rounded bg-green-100 text-green-700">跌停</span>}
+          </div>
           <p className="text-xs text-gray-600 mt-0.5">{item.symbol}</p>
         </div>
 
