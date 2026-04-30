@@ -305,20 +305,10 @@ async function fetchStockMap(symbols) {
       return yc
     })()
 
-    console.log('[TWSE]', item.c, {
-      price:          price != null ? price.toFixed(2) : '--',
-      yesterdayClose: ycValid  ? yc.toFixed(2) : '--',
-      limitUp:        limValid ? limitUp.toFixed(2) : '--',
-      limitDown:      limValid ? limitDown.toFixed(2) : '--',
-      referencePrice: referencePrice > 0 ? referencePrice.toFixed(2) : '--',
-      basePrice:      basePrice > 0 ? basePrice.toFixed(2) : '--',
-    })
-
     map[item.c] = {
       name:           item.n,
       price,                               // null = 完全無法估算現價
       yesterdayClose: ycValid ? yc : 0,
-      referencePrice,
       basePrice,
       limitUp:   limValid ? limitUp   : null,
       limitDown: limValid ? limitDown : null,
@@ -412,7 +402,7 @@ async function fetchPrices(holdings) {
     // price: 有即時成交價用它；否則保留已存價格（若從未有資料才用昨收補底）
     const price = found.price !== null ? found.price
                 : (h.price > 0 ? h.price : found.yesterdayClose)
-    return { ...h, price, yesterdayClose: found.yesterdayClose, referencePrice: found.referencePrice, basePrice: found.basePrice }
+    return { ...h, price, yesterdayClose: found.yesterdayClose, basePrice: found.basePrice }
   })
 }
 
@@ -922,7 +912,6 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
         name:           info.name || name.trim() || sym,
         price:          info.price,
         yesterdayClose: info.yesterdayClose,
-        referencePrice: info.referencePrice,
         basePrice:      info.basePrice,
         limitUp:        info.limitUp,
         limitDown:      info.limitDown,
@@ -1042,7 +1031,6 @@ function WatchlistPage() {
           ...item,
           price,
           yesterdayClose: found.yesterdayClose,
-          referencePrice: found.referencePrice,
           basePrice:      found.basePrice,
           limitUp:        found.limitUp,
           limitDown:      found.limitDown,
