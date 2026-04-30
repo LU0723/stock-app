@@ -288,20 +288,40 @@ async function fetchStockMap(symbols) {
     const price = (rawZ !== null && !isNaN(rawZ)) ? rawZ : (mid ?? null)
     if (price === null && isNaN(yc)) continue
 
-    // 漲停/跌停價（除息日：兩值平均 = 除息後當日參考價，非除息日 ≈ 昨收）
-    const limitUp   = parseFloat((item.u || '').split('_')[0])
-    const limitDown = parseFloat((item.w || '').split('_')[0])
-    const referencePrice = (!isNaN(limitUp) && limitUp > 0 && !isNaN(limitDown) && limitDown > 0)
-      ? (limitUp + limitDown) / 2
-      : (!isNaN(yc) ? yc : 0)
+    // 漲停/跌停價：去除逗號等非數字字符後 parseFloat
+    const limitUp   = parseFloat((item.u || '').replace(/,/g, '').split('_')[0])
+    const limitDown = parseFloat((item.w || '').replace(/,/g, '').split('_')[0])
+
+    const ycValid  = !isNaN(yc) && yc > 0
+    const limValid = !isNaN(limitUp) && limitUp > 0 && !isNaN(limitDown) && limitDown > 0
+
+    // referencePrice = (漲停 + 跌停) / 2，代表當日基準價（除息日會與昨收不同）
+    const referencePrice = limValid ? (limitUp + limitDown) / 2 : (ycValid ? yc : 0)
+
+    // basePrice：預設用昨收；若 referencePrice 與昨收差距 > 3%（除息/除權日），才改用 referencePrice
+    const basePrice = (() => {
+      if (!ycValid) return referencePrice
+      if (limValid && Math.abs(referencePrice - yc) / yc > 0.03) return referencePrice
+      return yc
+    })()
+
+    console.log('[TWSE]', item.c, {
+      price:          price != null ? price.toFixed(2) : '--',
+      yesterdayClose: ycValid  ? yc.toFixed(2) : '--',
+      limitUp:        limValid ? limitUp.toFixed(2) : '--',
+      limitDown:      limValid ? limitDown.toFixed(2) : '--',
+      referencePrice: referencePrice > 0 ? referencePrice.toFixed(2) : '--',
+      basePrice:      basePrice > 0 ? basePrice.toFixed(2) : '--',
+    })
 
     map[item.c] = {
       name:           item.n,
       price,                               // null = 完全無法估算現價
-      yesterdayClose: !isNaN(yc) ? yc : 0,
+      yesterdayClose: ycValid ? yc : 0,
       referencePrice,
-      limitUp:   (!isNaN(limitUp)   && limitUp   > 0) ? limitUp   : null,
-      limitDown: (!isNaN(limitDown) && limitDown  > 0) ? limitDown : null,
+      basePrice,
+      limitUp:   limValid ? limitUp   : null,
+      limitDown: limValid ? limitDown : null,
     }
   }
   return map
@@ -392,15 +412,15 @@ async function fetchPrices(holdings) {
     // price: 有即時成交價用它；否則保留已存價格（若從未有資料才用昨收補底）
     const price = found.price !== null ? found.price
                 : (h.price > 0 ? h.price : found.yesterdayClose)
-    return { ...h, price, yesterdayClose: found.yesterdayClose, referencePrice: found.referencePrice }
+    return { ...h, price, yesterdayClose: found.yesterdayClose, referencePrice: found.referencePrice, basePrice: found.basePrice }
   })
 }
 
 // ─── 計算邏輯 ─────────────────────────────────────────────────────────────────
 
 function calcStock(h) {
-  // 除息日用 referencePrice（漲跌停均值）而非昨收，避免顯示異常跌幅
-  const refPrice = h.referencePrice ?? h.yesterdayClose
+  // basePrice：一般日=昨收，除息/除權日（差距>3%）=漲跌停均值
+  const refPrice = h.basePrice ?? h.yesterdayClose
   if (h.price === 0 || refPrice === 0) {
     return {
       code: h.symbol, name: h.name, shares: h.shares, avgCost: h.avgCost,
@@ -426,7 +446,7 @@ function calcSummary(stocks, holdings) {
   }
   const totalCost      = holdings.reduce((sum, h) => sum + h.avgCost * h.shares, 0)
   const marketValue    = holdings.reduce((sum, h) => sum + h.price   * h.shares, 0)
-  const yesterdayValue = holdings.reduce((sum, h) => sum + (h.referencePrice ?? h.yesterdayClose) * h.shares, 0)
+  const yesterdayValue = holdings.reduce((sum, h) => sum + (h.basePrice ?? h.yesterdayClose) * h.shares, 0)
   const todayPnL       = stocks.reduce((sum, s) => sum + s.todayPnL, 0)
   const totalPnL       = stocks.reduce((sum, s) => sum + s.totalPnL, 0)
   return {
@@ -903,6 +923,7 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
         price:          info.price,
         yesterdayClose: info.yesterdayClose,
         referencePrice: info.referencePrice,
+        basePrice:      info.basePrice,
         limitUp:        info.limitUp,
         limitDown:      info.limitDown,
       })
@@ -1022,6 +1043,7 @@ function WatchlistPage() {
           price,
           yesterdayClose: found.yesterdayClose,
           referencePrice: found.referencePrice,
+          basePrice:      found.basePrice,
           limitUp:        found.limitUp,
           limitDown:      found.limitDown,
         }
@@ -1155,8 +1177,8 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
   const [showActions, setShowActions] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
 
-  // 除息日用 referencePrice（漲跌停均值）而非昨收，避免顯示異常跌幅
-  const refPrice    = item.referencePrice ?? item.yesterdayClose
+  // basePrice：一般日=昨收，除息/除權日（差距>3%）=漲跌停均值
+  const refPrice    = item.basePrice ?? item.yesterdayClose
   const hasPrice    = item.price > 0 && refPrice > 0
   const changeAmt   = hasPrice ? item.price - refPrice : 0
   const changePct   = hasPrice ? (changeAmt / refPrice) * 100 : 0
