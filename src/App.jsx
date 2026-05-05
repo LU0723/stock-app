@@ -622,14 +622,14 @@ function HoldingForm({ initial, onSave, onCancel }) {
     buyDate: initial?.buyDate ?? new Date().toISOString().slice(0, 10),
   })
   const [isLookingUp, setIsLookingUp] = useState(false)
+  const lookupTimerRef = useRef(null)
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  async function lookupName() {
-    const sym = form.symbol.trim().toUpperCase()
-    if (!sym || form.name) return
+  async function lookupName(sym) {
+    if (!sym) return
     setIsLookingUp(true)
     try {
       const map  = await fetchStockMap([sym])
@@ -638,6 +638,14 @@ function HoldingForm({ initial, onSave, onCancel }) {
     } catch {}
     setIsLookingUp(false)
   }
+
+  useEffect(() => {
+    const sym = form.symbol.trim().toUpperCase()
+    if (!sym) return
+    clearTimeout(lookupTimerRef.current)
+    lookupTimerRef.current = setTimeout(() => lookupName(sym), 600)
+    return () => clearTimeout(lookupTimerRef.current)
+  }, [form.symbol])
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -671,7 +679,6 @@ function HoldingForm({ initial, onSave, onCancel }) {
             <label className="text-xs text-white mb-1 block">股票代號</label>
             <input type="text" value={form.symbol}
               onChange={e => set('symbol', e.target.value)}
-              onBlur={lookupName}
               placeholder="例：2330"
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
           </div>
@@ -872,11 +879,10 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
   const [isLookingUp, setIsLookingUp] = useState(false)
   const [isAdding,    setIsAdding]    = useState(false)
   const [error,       setError]       = useState('')
+  const lookupTimerRef = useRef(null)
 
-  // 代號失焦時自動查詢名稱
-  async function lookupName() {
-    const sym = symbol.trim().toUpperCase()
-    if (!sym || name) return
+  async function lookupName(sym) {
+    if (!sym) return
     setIsLookingUp(true)
     setError('')
     try {
@@ -886,6 +892,14 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
     } catch {}
     setIsLookingUp(false)
   }
+
+  useEffect(() => {
+    const sym = symbol.trim().toUpperCase()
+    if (!sym) return
+    clearTimeout(lookupTimerRef.current)
+    lookupTimerRef.current = setTimeout(() => lookupName(sym), 600)
+    return () => clearTimeout(lookupTimerRef.current)
+  }, [symbol])
 
   // 按「加入」時驗證代號並取得即時股價
   async function handleSubmit(e) {
@@ -940,7 +954,6 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
             <input
               type="text" value={symbol}
               onChange={e => { setSymbol(e.target.value); setError('') }}
-              onBlur={lookupName}
               placeholder="例：2330"
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]"
             />
@@ -3216,14 +3229,14 @@ function UsHoldingForm({ initial, onSave, onCancel }) {
     avgCost: initial?.avgCost ?? '',
   })
   const [isLookingUp, setIsLookingUp] = useState(false)
+  const lookupTimerRef = useRef(null)
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }))
   }
 
-  async function lookupName() {
-    const sym = form.symbol.trim().toUpperCase()
-    if (!sym || form.name) return
+  async function lookupName(sym) {
+    if (!sym) return
     setIsLookingUp(true)
     try {
       const map  = await fetchUsStockMap([sym])
@@ -3232,6 +3245,14 @@ function UsHoldingForm({ initial, onSave, onCancel }) {
     } catch {}
     setIsLookingUp(false)
   }
+
+  useEffect(() => {
+    const sym = form.symbol.trim().toUpperCase()
+    if (!sym) return
+    clearTimeout(lookupTimerRef.current)
+    lookupTimerRef.current = setTimeout(() => lookupName(sym), 600)
+    return () => clearTimeout(lookupTimerRef.current)
+  }, [form.symbol])
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -3264,7 +3285,6 @@ function UsHoldingForm({ initial, onSave, onCancel }) {
             <label className="text-xs text-white mb-1 block">股票代號</label>
             <input type="text" value={form.symbol}
               onChange={e => set('symbol', e.target.value)}
-              onBlur={lookupName}
               placeholder="例：AAPL"
               className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#555]" />
           </div>
