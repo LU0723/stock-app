@@ -1066,6 +1066,13 @@ function WatchlistPage() {
     saveWatchlist(next)
   }
 
+  const taiexHasP  = taiex.price > 0 && taiex.yesterdayClose > 0
+  const taiexChAmt = taiexHasP ? taiex.price - taiex.yesterdayClose : 0
+  const taiexChPct = taiexHasP ? (taiexChAmt / taiex.yesterdayClose) * 100 : 0
+  const taiexColor = taiexHasP ? (taiexChAmt > 0 ? 'text-red-500' : taiexChAmt < 0 ? 'text-green-600' : 'text-gray-400') : 'text-gray-300'
+  const taiexArrow = taiexChAmt > 0 ? '▲' : taiexChAmt < 0 ? '▼' : ''
+  const taiexSign  = taiexChAmt > 0 ? '+' : ''
+
   return (
     <div className="pb-4">
       {/* 標題列 */}
@@ -1088,19 +1095,26 @@ function WatchlistPage() {
       {/* 加權指數卡片 */}
       <div className="px-4 pt-3 pb-2">
         <div
-          className="bg-white rounded-2xl border border-gray-200 overflow-hidden cursor-pointer active:bg-gray-100 transition-colors"
+          className="bg-white rounded-2xl border border-gray-200 px-4 py-3 cursor-pointer active:bg-gray-100 transition-colors"
           onClick={() => window.open('https://tw.stock.yahoo.com/t/idx.php', '_blank', 'noopener,noreferrer')}
         >
-          <div className="flex items-center px-4 pt-2.5 pb-0">
-            <p className="text-[10px] text-gray-500 uppercase tracking-wider flex-1">大盤指數</p>
-            <div className="flex items-center gap-0.5 text-gray-400">
-              <span className="text-[10px]">查看 K 線</span>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="9 18 15 12 9 6"/>
-              </svg>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 mb-1">加權指數</p>
+              <p className={`text-2xl font-bold tabular-nums ${taiexColor}`}>
+                {taiexHasP ? taiex.price.toLocaleString() : '--'}
+              </p>
+            </div>
+            <div className={`text-right shrink-0 ${taiexColor}`}>
+              <p className="text-base font-semibold tabular-nums">
+                {taiexHasP ? `${taiexArrow}${Math.abs(taiexChAmt).toFixed(2)}` : '--'}
+              </p>
+              <p className="text-sm mt-0.5 tabular-nums">
+                {taiexHasP ? `${taiexSign}${taiexChPct.toFixed(2)}%` : '--'}
+              </p>
+              <p className="text-[10px] text-gray-400 mt-2">查看 K 線 ›</p>
             </div>
           </div>
-          <WatchlistRow item={taiex} fixed />
         </div>
       </div>
 
