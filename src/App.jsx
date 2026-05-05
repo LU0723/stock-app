@@ -592,18 +592,18 @@ function SummaryCard({ summary }) {
         </p>
         <PercentText value={summary.todayPnLPercent} className="text-base mt-1" />
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <p className="text-xs text-gray-600 mb-1">累積損益</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-gray-50 rounded-lg p-3">
+          <p className="text-xs text-gray-500 mb-1">累積損益</p>
           <PnLText value={summary.totalPnL} className="text-xl font-semibold" />
           <div className="mt-0.5">
             <PercentText value={summary.totalPnLPercent} className="text-sm" />
           </div>
         </div>
-        <div>
-          <p className="text-xs text-gray-600 mb-1">股票市值</p>
+        <div className="bg-gray-50 rounded-lg p-3">
+          <p className="text-xs text-gray-500 mb-1">股票市值</p>
           <p className="text-xl font-semibold text-gray-900">{formatNumber(summary.marketValue)}</p>
-          <p className="text-sm text-gray-600 mt-0.5">成本 {formatNumber(summary.totalCost)}</p>
+          <p className="text-sm text-gray-400 mt-1.5 border-t border-gray-200 pt-1.5">成本 {formatNumber(summary.totalCost)}</p>
         </div>
       </div>
     </div>
