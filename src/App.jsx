@@ -3480,7 +3480,7 @@ function UsStockRow({ stock, onEdit, onDelete }) {
             className="flex-1 py-2.5 text-xs text-gray-600 hover:bg-gray-50 transition-colors">編輯</button>
           <div className="w-px bg-gray-200" />
           <button
-            onClick={() => stock.symbol && window.open(`https://www.wantgoo.com/global/${stock.symbol.toLowerCase()}`, '_blank', 'noopener,noreferrer')}
+            onClick={() => stock.symbol && window.open(`http://www.aastocks.com/tc/usq/quote/chart.aspx?symbol=${stock.symbol}`, '_blank', 'noopener,noreferrer')}
             className="flex-1 py-2.5 text-xs text-blue-500 hover:bg-blue-50 transition-colors">K線</button>
           <div className="w-px bg-gray-200" />
           <button onClick={() => setShowDeleteModal(true)}
