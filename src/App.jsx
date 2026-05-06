@@ -433,15 +433,62 @@ async function fetchTaiwanIndex() {
 }
 
 // ─── 美股報價 API（Yahoo Finance，約 15 分鐘延遲）─────────────────────────────
-// 回傳：{ [symbol]: { name, price, previousClose, marketState } }
-// price        = regularMarketPrice（正式盤，不含 pre/post market）
-// previousClose = 上一個正式盤收盤價（今日漲跌幅基準）
-// marketState  = 'PRE' | 'REGULAR' | 'POST' | 'UNKNOWN'（由伺服器從時間戳推算）
+// 回傳：{ [symbol]: { name, price, previousClose, marketState, regularSessionEnd } }
+// price             = regularMarketPrice（正式盤，不含 pre/post market）
+// previousClose     = 上一個正式盤收盤價（今日漲跌幅基準）
+// marketState       = 'PRE' | 'REGULAR' | 'POST' | 'UNKNOWN'（由伺服器從時間戳推算）
+// regularSessionEnd = 正式盤結束的 Unix 秒數（用於判斷 dead zone，不 hardcode DST）
 async function fetchUsStockMap(symbols) {
   if (symbols.length === 0) return {}
   const res = await fetch(`/api/us-stock?symbols=${symbols.join(',')}`, { cache: 'no-store' })
   if (!res.ok) throw new Error(`US API 錯誤：${res.status}`)
   return await res.json()
+}
+
+// ─── US stock session cache ───────────────────────────────────────────────────
+// TTL 規則（使用 API 回傳的 regularSessionEnd，不 hardcode 夏令/冬令時間）：
+//   REGULAR / PRE / POST（距收盤 < 4 小時）→ 30 秒 TTL，保持即時性
+//   POST + 距 regularSessionEnd > 4 小時（盤後交易結束後的 dead zone）→ session 內沿用
+//   UNKNOWN → 30 秒 TTL（安全保守）
+//   force=true → 無條件跳過 cache（手動刷新 / 新增持股）
+
+const _usStockCache = {}          // { [symbol]: { ...data, fetchedAt, regularSessionEnd } }
+const _US_POSTMKT_HOURS = 4       // 美股盤後交易約 4 小時（4 PM ET → 8 PM ET）
+
+function _isUsDeadZone(entry) {
+  if (!entry || entry.marketState !== 'POST') return false
+  if (!entry.regularSessionEnd) return false
+  return Date.now() > entry.regularSessionEnd * 1_000 + _US_POSTMKT_HOURS * 3_600_000
+}
+
+function _isUsCacheValid(entry) {
+  if (!entry) return false
+  if (_isUsDeadZone(entry)) return true       // dead zone：正式收盤且盤後結束，session 內沿用
+  return Date.now() - entry.fetchedAt < 30_000
+}
+
+async function fetchUsStockMapCached(symbols, force = false) {
+  if (symbols.length === 0) return {}
+  const now     = Date.now()
+  const toFetch = force
+    ? symbols
+    : symbols.filter(s => !_isUsCacheValid(_usStockCache[s]))
+
+  if (toFetch.length > 0) {
+    const fresh = await fetchUsStockMap(toFetch)
+    for (const [sym, data] of Object.entries(fresh)) {
+      _usStockCache[sym] = { ...data, fetchedAt: now }
+    }
+  }
+
+  const result = {}
+  for (const sym of symbols) {
+    if (_usStockCache[sym]) {
+      const { fetchedAt: _ft, ...data } = _usStockCache[sym]
+      result[sym] = data
+    }
+  }
+  return result
 }
 
 // 庫存頁專用：套用價格到 holdings 陣列
@@ -3467,12 +3514,12 @@ function UsHoldingsPage() {
     saveUsHoldings(next)
   }
 
-  async function refreshPrices(currentHoldings) {
+  async function refreshPrices(currentHoldings, force = false) {
     if (currentHoldings.length === 0) return
     setIsFetching(true)
     setFetchError(null)
     try {
-      const map     = await fetchUsStockMap(currentHoldings.map(h => h.symbol))
+      const map     = await fetchUsStockMapCached(currentHoldings.map(h => h.symbol), force)
       const updated = currentHoldings.map(h => {
         const found = map[h.symbol]
         if (!found) return h
@@ -3506,7 +3553,7 @@ function UsHoldingsPage() {
     const next = [...holdings, withChanges]
     updateHoldings(next)
     setModal(null)
-    await refreshPrices(next)
+    await refreshPrices(next, true)
   }
 
   function handleEdit(updatedHolding) {
@@ -3539,7 +3586,7 @@ function UsHoldingsPage() {
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
           </span>
           <button
-            onClick={() => refreshPrices(holdings)}
+            onClick={() => refreshPrices(holdings, true)}
             disabled={isFetching}
             className="text-gray-500 transition-colors p-1 disabled:opacity-40"
             title="更新股價"

@@ -79,6 +79,7 @@ async function fetchSymbol(sym) {
     price,
     previousClose,
     marketState,
+    regularSessionEnd: meta.currentTradingPeriod?.regular?.end ?? null,
   }
 }
 
