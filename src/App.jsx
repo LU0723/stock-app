@@ -317,6 +317,61 @@ async function fetchStockMap(symbols) {
   return map
 }
 
+// ─── Taiwan stock session cache（同頁面載入期間有效，不寫 localStorage）────────
+//
+// 時段規則（台股）：
+//   盤中 08:30~13:35  → 30 秒 TTL，超過才重抓
+//   收盤後（13:35+）   → 必須 fetchedAt >= 當日 13:35 才算收盤後 cache，可沿用整日
+//   防呆：fetchedAt < 13:35 但現在已收盤 → 仍需重抓一次，避免沿用盤中舊價
+
+const _twStockCache = {}    // { [symbol]: { ...stockData, fetchedAt: ms } }
+
+function _isTwAfterClose() {
+  const now = new Date()
+  const day = now.getDay()   // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return true
+  return now.getHours() * 60 + now.getMinutes() >= 13 * 60 + 35
+}
+
+function _todayCloseMs() {
+  const d = new Date()
+  d.setHours(13, 35, 0, 0)
+  return d.getTime()
+}
+
+function _isTwCacheValid(fetchedAt) {
+  if (!fetchedAt) return false
+  if (_isTwAfterClose()) {
+    return fetchedAt >= _todayCloseMs()   // 收盤後：必須是收盤後抓到的才算有效
+  }
+  return Date.now() - fetchedAt < 30_000  // 盤中：30 秒 TTL
+}
+
+// 所有台股 fetch 都走這裡；force=true 強制跳過 cache（手動刷新用）
+async function fetchStockMapCached(symbols, force = false) {
+  if (symbols.length === 0) return {}
+  const now     = Date.now()
+  const toFetch = force
+    ? symbols
+    : symbols.filter(s => !_isTwCacheValid(_twStockCache[s]?.fetchedAt))
+
+  if (toFetch.length > 0) {
+    const fresh = await fetchStockMap(toFetch)
+    for (const [sym, data] of Object.entries(fresh)) {
+      _twStockCache[sym] = { ...data, fetchedAt: now }
+    }
+  }
+
+  const result = {}
+  for (const sym of symbols) {
+    if (_twStockCache[sym]) {
+      const { fetchedAt: _ft, ...data } = _twStockCache[sym]
+      result[sym] = data
+    }
+  }
+  return result
+}
+
 // 台灣加權指數近一年高點：抓 TWSE exchangeReport/FMTQIK 歷史月資料
 // 直接前端 fetch（www.twse.com.tw 支援 CORS），不需 proxy
 async function fetchYearHigh() {
@@ -390,9 +445,9 @@ async function fetchUsStockMap(symbols) {
 }
 
 // 庫存頁專用：套用價格到 holdings 陣列
-async function fetchPrices(holdings) {
+async function fetchPrices(holdings, force = false) {
   if (holdings.length === 0) return holdings
-  const map = await fetchStockMap(holdings.map(h => h.symbol))
+  const map = await fetchStockMapCached(holdings.map(h => h.symbol), force)
   return holdings.map(h => {
     const found = map[h.symbol]
     if (!found) {
@@ -1020,12 +1075,12 @@ function WatchlistPage() {
   )
 
   // 更新自選股清單 + 加權指數
-  async function refreshWatchlist(currentList) {
+  async function refreshWatchlist(currentList, force = false) {
     setIsFetching(true)
     try {
-      // 加權指數 (t00) 和自選股一起送出，一次 API 呼叫
+      // 加權指數 (t00) 和自選股一起送出，走共用 session cache
       const symbols = ['t00', ...currentList.map(i => i.symbol)]
-      const map     = await fetchStockMap(symbols)
+      const map     = await fetchStockMapCached(symbols, force)
 
       // 更新加權指數
       const taiexInfo = map['t00']
@@ -1096,7 +1151,7 @@ function WatchlistPage() {
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
           </span>
           <button
-            onClick={() => refreshWatchlist(list)}
+            onClick={() => refreshWatchlist(list, true)}
             disabled={isFetching}
             className="text-gray-500 p-1 disabled:opacity-40"
           >
@@ -1512,10 +1567,12 @@ function ExposurePage({ holdings, onExitAdvanced }) {
 
   useEffect(() => {
     async function init() {
-      // 1. 抓目前指數
+      // 1. 抓目前指數（走共用 session cache，避免與自選股頁重複 fetch t00）
       let price = null
       try {
-        price = await fetchTaiwanIndex()
+        const tMap = await fetchStockMapCached(['t00'])
+        price = tMap['t00']?.price ?? null
+        if (price === null) throw new Error('加權指數無法解析')
         setTwii(price)
       } catch {
         setTwiiError(true)
@@ -3711,11 +3768,11 @@ export default function App() {
     saveHoldings(newHoldings)
   }
 
-  async function refreshPrices(currentHoldings) {
+  async function refreshPrices(currentHoldings, force = false) {
     setIsFetching(true)
     setFetchError(null)
     try {
-      const updated = await fetchPrices(currentHoldings)
+      const updated = await fetchPrices(currentHoldings, force)
       updateHoldings(updated)
       setLastUpdated(
         new Date().toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -3750,7 +3807,7 @@ export default function App() {
     const newHoldings = [...holdings, withChanges]
     updateHoldings(newHoldings)
     setModal(null)
-    await refreshPrices(newHoldings)
+    await refreshPrices(newHoldings, true)
   }
 
   function handleEdit(updatedHolding) {
@@ -3807,7 +3864,7 @@ export default function App() {
           <TopBar
             lastUpdated={lastUpdated}
             isFetching={isFetching}
-            onRefresh={() => refreshPrices(holdings)}
+            onRefresh={() => refreshPrices(holdings, true)}
             onBackup={() => setShowBackup(true)}
             onLongPress={handleTitleLongPress}
           />
