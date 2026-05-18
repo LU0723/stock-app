@@ -1164,6 +1164,7 @@ function WatchlistPage() {
   const longPressTimer    = useRef(null)
   const swipeContainerRef = useRef(null)
   const sortLockedRef     = useRef(sortLocked)
+  const activeTabRef      = useRef(activeTab)
 
   const activeCat = watchlistMap[activeTab] ?? { name: activeTab, items: [] }
   const list = activeCat.items
@@ -1194,8 +1195,9 @@ function WatchlistPage() {
     setRenamingKey(null)
   }
 
-  // sortLockedRef 同步最新值，供原生 event listener 讀取
+  // ref 同步最新值，供原生 event listener 讀取（不受 stale closure 影響）
   useEffect(() => { sortLockedRef.current = sortLocked }, [sortLocked])
+  useEffect(() => { activeTabRef.current  = activeTab  }, [activeTab])
 
   // 原生 touch listeners（passive:false 的 touchmove 才能 preventDefault 攔截捲動）
   useEffect(() => {
@@ -1205,8 +1207,8 @@ function WatchlistPage() {
 
     function onStart(e) {
       if (!sortLockedRef.current) return
-      startX = e.touches[0].clientX
-      startY = e.touches[0].clientY
+      startX  = e.touches[0].clientX
+      startY  = e.touches[0].clientY
       isHoriz = false
     }
     function onMove(e) {
@@ -1219,17 +1221,23 @@ function WatchlistPage() {
       if (isHoriz) e.preventDefault()
     }
     function onEnd(e) {
-      if (!sortLockedRef.current || !isHoriz) return
-      const dx = e.changedTouches[0].clientX - startX
-      const dy = e.changedTouches[0].clientY - startY
-      isHoriz = false
+      if (!sortLockedRef.current) return
+      const dx      = e.changedTouches[0].clientX - startX
+      const dy      = e.changedTouches[0].clientY - startY
+      const wasHoriz = isHoriz
+      // 無論成功與否都重置，避免下一次滑動吃到舊狀態
+      startX = 0; startY = 0; isHoriz = false
+      if (!wasHoriz) return
       if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return
-      setActiveTab(prev => {
-        const i = WATCH_KEYS.indexOf(prev)
-        if (dx < 0 && i < WATCH_KEYS.length - 1) return WATCH_KEYS[i + 1]
-        if (dx > 0 && i > 0)                      return WATCH_KEYS[i - 1]
-        return prev
-      })
+      // 從 ref 讀最新 activeTab，完全不依賴閉包
+      const currentTab   = activeTabRef.current
+      const currentIndex = WATCH_KEYS.indexOf(currentTab)
+      const direction    = dx < 0 ? 1 : -1   // 左滑 → 下一個；右滑 → 上一個
+      const nextIndex    = currentIndex + direction
+      const nextTab      = WATCH_KEYS[nextIndex]
+      console.log('[watchlist swipe]', { currentTab, currentIndex, direction, nextIndex, nextTab })
+      if (nextIndex < 0 || nextIndex >= WATCH_KEYS.length) return
+      setActiveTab(nextTab)
     }
 
     el.addEventListener('touchstart', onStart, { passive: true })
