@@ -84,9 +84,9 @@ function saveHoldings(holdings) {
 function loadWatchlist() {
   try {
     const saved = localStorage.getItem(WATCHLIST_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) return migrateWatchlistToMap(JSON.parse(saved))
   } catch {}
-  return DEFAULT_WATCHLIST
+  return migrateWatchlistToMap(DEFAULT_WATCHLIST)
 }
 
 function saveWatchlist(list) {
@@ -959,19 +959,36 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
 
 // ─── 自選股資料 ───────────────────────────────────────────────────────────────
 
+const CATEGORIES = ['關注', 'ETF']
+
 // 加權指數：固定第一筆，不可移除
 // TWSE MIS API 的加權指數代號是 t00（不是 TWII）
 const TAIEX_INIT = {
   symbol: 't00', name: '加權指數', price: 0, yesterdayClose: 0,
 }
 
-// 預設假資料（localStorage 無資料時使用，price=0 → 載入後自動更新）
-const DEFAULT_WATCHLIST = [
-  { symbol: '0050',   name: '元大台灣50',       price: 0, yesterdayClose: 0 },
-  { symbol: '2330',   name: '台積電',           price: 0, yesterdayClose: 0 },
-  { symbol: '00631L', name: '元大台灣50正2',    price: 0, yesterdayClose: 0 },
-  { symbol: '00675L', name: '富邦臺灣加權正2',  price: 0, yesterdayClose: 0 },
-]
+// 預設假資料（localStorage 無資料時使用）
+const DEFAULT_WATCHLIST = {
+  '關注': [
+    { symbol: '0050',   name: '元大台灣50',      price: 0, yesterdayClose: 0 },
+    { symbol: '2330',   name: '台積電',          price: 0, yesterdayClose: 0 },
+    { symbol: '00631L', name: '元大台灣50正2',   price: 0, yesterdayClose: 0 },
+    { symbol: '00675L', name: '富邦臺灣加權正2', price: 0, yesterdayClose: 0 },
+  ],
+  'ETF': [],
+}
+
+// 舊 array 格式 → 新 map 格式；新格式確保兩個 key 都存在
+function migrateWatchlistToMap(data) {
+  if (Array.isArray(data)) {
+    return { '關注': data, 'ETF': [] }
+  }
+  const result = {}
+  for (const cat of CATEGORIES) {
+    result[cat] = Array.isArray(data[cat]) ? data[cat] : []
+  }
+  return result
+}
 
 // ─── 自選股新增表單 ───────────────────────────────────────────────────────────
 
@@ -1094,12 +1111,21 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
 // ─── 自選股頁 ─────────────────────────────────────────────────────────────────
 
 function WatchlistPage() {
-  const [list,        setList]        = useState(loadWatchlist)
-  const [taiex,       setTaiex]       = useState(TAIEX_INIT)
-  const [showForm,    setShowForm]    = useState(false)
-  const [isFetching,  setIsFetching]  = useState(false)
-  const [lastUpdated, setLastUpdated] = useState('--')
-  const [sortLocked,  setSortLocked]  = useState(loadSortLocked)
+  const [watchlistMap, setWatchlistMap] = useState(loadWatchlist)
+  const [activeTab,    setActiveTab]    = useState(CATEGORIES[0])
+  const [taiex,        setTaiex]        = useState(TAIEX_INIT)
+  const [showForm,     setShowForm]     = useState(false)
+  const [isFetching,   setIsFetching]   = useState(false)
+  const [lastUpdated,  setLastUpdated]  = useState('--')
+  const [sortLocked,   setSortLocked]   = useState(loadSortLocked)
+
+  // 目前 tab 的股票清單
+  const list = watchlistMap[activeTab] ?? []
+
+  function saveMap(map) {
+    setWatchlistMap(map)
+    saveWatchlist(map)
+  }
 
   function toggleLock() {
     const next = !sortLocked
@@ -1112,8 +1138,7 @@ function WatchlistPage() {
     const oldIdx = list.findIndex(i => i.symbol === active.id)
     const newIdx = list.findIndex(i => i.symbol === over.id)
     const reordered = arrayMove(list, oldIdx, newIdx)
-    setList(reordered)
-    saveWatchlist(reordered)
+    saveMap({ ...watchlistMap, [activeTab]: reordered })
   }
 
   const sensors = useSensors(
@@ -1121,12 +1146,14 @@ function WatchlistPage() {
     useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
   )
 
-  // 更新自選股清單 + 加權指數
-  async function refreshWatchlist(currentList, force = false) {
+  // 更新所有分類的股價 + 加權指數
+  async function refreshWatchlist(currentMap, force = false) {
     setIsFetching(true)
     try {
-      // 加權指數 (t00) 和自選股一起送出，走共用 session cache
-      const symbols = ['t00', ...currentList.map(i => i.symbol)]
+      const allSymbols = [...new Set(
+        CATEGORIES.flatMap(cat => (currentMap[cat] ?? []).map(i => i.symbol))
+      )]
+      const symbols = ['t00', ...allSymbols]
       const map     = await fetchStockMapCached(symbols, force)
 
       // 更新加權指數
@@ -1136,23 +1163,26 @@ function WatchlistPage() {
         setTaiex({ ...TAIEX_INIT, price: taiexPrice, yesterdayClose: taiexInfo.yesterdayClose })
       }
 
-      // 更新自選股清單
-      const updated = currentList.map(item => {
-        const found = map[item.symbol]
-        if (!found) return item
-        const price = found.price !== null ? found.price
-                    : (item.price > 0 ? item.price : found.yesterdayClose)
-        return {
-          ...item,
-          price,
-          yesterdayClose: found.yesterdayClose,
-          basePrice:      found.basePrice,
-          limitUp:        found.limitUp,
-          limitDown:      found.limitDown,
-        }
-      })
-      setList(updated)
-      saveWatchlist(updated)
+      // 更新每個分類的行情
+      const updatedMap = {}
+      for (const cat of CATEGORIES) {
+        updatedMap[cat] = (currentMap[cat] ?? []).map(item => {
+          const found = map[item.symbol]
+          if (!found) return item
+          const price = found.price !== null ? found.price
+                      : (item.price > 0 ? item.price : found.yesterdayClose)
+          return {
+            ...item,
+            price,
+            yesterdayClose: found.yesterdayClose,
+            basePrice:      found.basePrice,
+            limitUp:        found.limitUp,
+            limitDown:      found.limitDown,
+          }
+        })
+      }
+      setWatchlistMap(updatedMap)
+      saveWatchlist(updatedMap)
       setLastUpdated(
         new Date().toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
       )
@@ -1163,22 +1193,17 @@ function WatchlistPage() {
     }
   }
 
-  // 頁面載入時自動更新一次
   useEffect(() => {
     refreshWatchlist(loadWatchlist())
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function addItem(item) {
-    const next = [...list, item]
-    setList(next)
-    saveWatchlist(next)
+    saveMap({ ...watchlistMap, [activeTab]: [...list, item] })
     setShowForm(false)
   }
 
   function deleteItem(symbol) {
-    const next = list.filter(i => i.symbol !== symbol)
-    setList(next)
-    saveWatchlist(next)
+    saveMap({ ...watchlistMap, [activeTab]: list.filter(i => i.symbol !== symbol) })
   }
 
   const taiexHasP  = taiex.price > 0 && taiex.yesterdayClose > 0
@@ -1198,7 +1223,7 @@ function WatchlistPage() {
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
           </span>
           <button
-            onClick={() => refreshWatchlist(list, true)}
+            onClick={() => refreshWatchlist(watchlistMap, true)}
             disabled={isFetching}
             className="text-gray-500 p-0.5 disabled:opacity-40"
           >
@@ -1233,6 +1258,22 @@ function WatchlistPage() {
         </div>
       </div>
 
+      {/* 分類 Tab：關注 | ETF */}
+      <div className="flex border-b border-gray-100">
+        {CATEGORIES.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setActiveTab(cat)}
+            className={`flex-1 py-2 text-sm font-medium transition-colors
+              ${activeTab === cat
+                ? 'text-gray-900 border-b-2 border-gray-900'
+                : 'text-gray-400 hover:text-gray-600'}`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
       {/* 自選清單標題 + 鎖定按鈕 + 新增按鈕 */}
       <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-100">
         <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
@@ -1263,7 +1304,7 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 自選股列表 */}
+      {/* 目前分類股票清單 */}
       {list.length === 0 ? (
         <div className="p-10 text-center">
           <p className="text-gray-400 text-sm">尚無自選股</p>
@@ -1285,7 +1326,13 @@ function WatchlistPage() {
         </DndContext>
       )}
 
-      {showForm && <WatchlistForm existingSymbols={list.map(i => i.symbol)} onSave={addItem} onCancel={() => setShowForm(false)} />}
+      {showForm && (
+        <WatchlistForm
+          existingSymbols={list.map(i => i.symbol)}
+          onSave={addItem}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
     </div>
   )
 }
@@ -1420,13 +1467,9 @@ function SortableWatchlistRow({ item, onDelete }) {
 
 // ─── 備份 / 還原 ─────────────────────────────────────────────────────────────
 
-// 清洗自選股單筆：只保留 symbol / name / categories，去除行情暫存欄位
+// 清洗自選股單筆：只保留 symbol / name，去除行情暫存欄位
 function cleanWatchlistItem(item) {
-  const clean = { symbol: item.symbol, name: item.name }
-  if (Array.isArray(item.categories) && item.categories.length > 0) {
-    clean.categories = item.categories
-  }
-  return clean
+  return { symbol: item.symbol, name: item.name }
 }
 
 // 驗證 performanceMonthlyLedger 格式
@@ -1465,11 +1508,19 @@ function BackupModal({ onClose }) {
       if (raw) usAccountNames = JSON.parse(raw)
     } catch {}
 
+    // 清洗 watchlist：讀取 → 轉成 map → 每筆只保留 symbol/name
+    const rawWl     = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]')
+    const wlMap     = migrateWatchlistToMap(rawWl)
+    const cleanedWl = {}
+    for (const cat of CATEGORIES) {
+      cleanedWl[cat] = (wlMap[cat] ?? []).map(cleanWatchlistItem)
+    }
+
     const backup = {
-      version:    4,
+      version:    5,
       exportedAt: now.toISOString(),
-      holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY)     || '[]'),
-      watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]').map(cleanWatchlistItem),
+      holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'),
+      watchlist:  cleanedWl,
       sortLocked: localStorage.getItem(SORT_LOCK_KEY) ?? 'true',
       performanceMonthlyLedger: ledger,
       // 美股持股（v3+）
@@ -1497,15 +1548,25 @@ function BackupModal({ onClose }) {
       try {
         const data = JSON.parse(ev.target.result)
 
-        // 基本欄位驗證（與舊版相容：holdings / watchlist 必須為陣列）
-        if (!Array.isArray(data.holdings) || !Array.isArray(data.watchlist)) {
+        // 基本欄位驗證（holdings 必須為陣列；watchlist 接受舊 array 或新 object）
+        const wlRaw = data.watchlist
+        const wlValid = Array.isArray(wlRaw) ||
+          (wlRaw && typeof wlRaw === 'object' && !Array.isArray(wlRaw))
+        if (!Array.isArray(data.holdings) || !wlValid) {
           setStatus('錯誤：備份檔格式不正確（holdings / watchlist 欄位異常）')
           return
         }
 
-        // 還原台股持股 + 自選股（必要欄位）
+        // watchlist：轉成 map → 清洗行情欄位
+        const wlMigrated = migrateWatchlistToMap(wlRaw)
+        const wlClean = {}
+        for (const cat of CATEGORIES) {
+          wlClean[cat] = (wlMigrated[cat] ?? []).map(cleanWatchlistItem)
+        }
+
+        // 還原台股持股 + 自選股
         localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings.map(migrateHolding)))
-        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist.map(cleanWatchlistItem)))
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(wlClean))
         if (data.sortLocked !== undefined) {
           localStorage.setItem(SORT_LOCK_KEY, String(data.sortLocked))
         }
