@@ -1207,23 +1207,29 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 加權指數卡片（橫向精簡一列） */}
-      <div className="px-4 pt-2.5 pb-2">
+      {/* 加權指數列（格式同自選股列） */}
+      <div className="border-b border-gray-100">
         <div
-          className="bg-white rounded-xl border border-gray-200 px-4 py-2.5 cursor-pointer active:bg-gray-50 transition-colors flex items-center gap-3"
+          className="flex items-center px-4 py-3 cursor-pointer active:bg-gray-50"
           onClick={() => window.open('https://tw.stock.yahoo.com/t/idx.php', '_blank', 'noopener,noreferrer')}
         >
-          <span className="text-xs text-gray-500 shrink-0">加權指數</span>
-          <span className={`text-base font-bold tabular-nums flex-1 ${taiexColor}`}>
-            {taiexHasP ? taiex.price.toLocaleString() : '--'}
-          </span>
-          <span className={`text-sm font-semibold tabular-nums shrink-0 ${taiexColor}`}>
-            {taiexHasP ? `${taiexArrow}${Math.abs(taiexChAmt).toFixed(2)}` : '--'}
-          </span>
-          <span className={`text-sm tabular-nums shrink-0 ${taiexColor}`}>
-            {taiexHasP ? `${taiexSign}${taiexChPct.toFixed(2)}%` : '--'}
-          </span>
-          <span className="text-[11px] text-gray-400 shrink-0 pl-1">查看K線 ›</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-base font-medium text-gray-900 leading-tight">加權指數</p>
+            <p className="text-xs text-gray-400 mt-0.5">查看K線 ›</p>
+          </div>
+          <div className="w-24 text-right">
+            <p className={`text-lg font-semibold tabular-nums ${taiexColor}`}>
+              {taiexHasP ? taiex.price.toLocaleString() : '--'}
+            </p>
+          </div>
+          <div className={`w-28 text-right ${taiexColor}`}>
+            <p className="text-base tabular-nums">
+              {taiexHasP ? `${taiexArrow}${Math.abs(taiexChAmt).toFixed(2)}` : '--'}
+            </p>
+            <p className="text-sm mt-0.5 tabular-nums">
+              {taiexHasP ? `${taiexSign}${taiexChPct.toFixed(2)}%` : '--'}
+            </p>
+          </div>
         </div>
       </div>
 
