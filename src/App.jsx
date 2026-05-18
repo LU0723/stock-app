@@ -1338,7 +1338,7 @@ function WatchlistPage() {
   const taiexSign  = taiexChAmt > 0 ? '+' : ''
 
   return (
-    <div className="pb-4">
+    <div className="pb-4 flex flex-col min-h-[calc(100vh-96px)]">
       {/* 標題列 */}
       <div className="flex items-center justify-between px-4 pt-2.5 pb-2 border-b border-gray-100">
         <h1 className="text-lg font-semibold text-gray-900 tracking-wide">自選股</h1>
@@ -1408,39 +1408,36 @@ function WatchlistPage() {
         })}
       </div>
 
-      {/* 自選清單標題 + 鎖定按鈕 + 新增按鈕 */}
-      <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-100">
-        <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={toggleLock}
-            title={sortLocked ? '解鎖排序' : '鎖定排序'}
-            className={`p-1.5 rounded-md transition-colors
-              ${sortLocked ? 'text-gray-400 hover:text-gray-600' : 'text-blue-500 hover:text-blue-600'}`}
-          >
-            {sortLocked ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
-              </svg>
-            )}
-          </button>
-          <button
-            onClick={() => setShowForm(true)}
-            className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
-            + 新增
-          </button>
+      {/* 自選清單標題 + 股票清單（flex-1 撐滿剩餘高度，讓整個空白區都可左右滑動切換分類） */}
+      <div ref={swipeContainerRef} className="flex-1">
+        <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-100">
+          <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={toggleLock}
+              title={sortLocked ? '解鎖排序' : '鎖定排序'}
+              className={`p-1.5 rounded-md transition-colors
+                ${sortLocked ? 'text-gray-400 hover:text-gray-600' : 'text-blue-500 hover:text-blue-600'}`}
+            >
+              {sortLocked ? (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              ) : (
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                  <path d="M7 11V7a5 5 0 0 1 9.9-1"/>
+                </svg>
+              )}
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="text-xs text-gray-600 border border-gray-300 hover:border-gray-400 rounded-md px-2.5 py-1 transition-colors">
+              + 新增
+            </button>
+          </div>
         </div>
-      </div>
-
-      {/* 目前分類股票清單（左右滑動切換分類，鎖定狀態才啟用）
-          min-h-[50vh]：確保空分類時容器仍有足夠高度，避免 touchstart 落在 div 外 */}
-      <div ref={swipeContainerRef} className="min-h-[50vh]">
         {list.length === 0 ? (
           <div className="p-10 text-center">
             <p className="text-gray-400 text-sm">尚無自選股</p>
