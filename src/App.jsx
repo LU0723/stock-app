@@ -959,7 +959,9 @@ function StockList({ stocks, onAdd, onEdit, onDelete }) {
 
 // ─── 自選股資料 ───────────────────────────────────────────────────────────────
 
-const CATEGORIES = ['關注', 'ETF']
+// 固定 5 個分類 key（不隨改名變動）
+const WATCH_KEYS = ['watch1', 'watch2', 'watch3', 'watch4', 'watch5']
+const WATCH_DEFAULT_NAMES = ['關注', '自選1', '自選2', '自選3', '自選4']
 
 // 加權指數：固定第一筆，不可移除
 // TWSE MIS API 的加權指數代號是 t00（不是 TWII）
@@ -967,26 +969,65 @@ const TAIEX_INIT = {
   symbol: 't00', name: '加權指數', price: 0, yesterdayClose: 0,
 }
 
-// 預設假資料（localStorage 無資料時使用）
+// 預設資料（localStorage 無資料時使用）
 const DEFAULT_WATCHLIST = {
-  '關注': [
-    { symbol: '0050',   name: '元大台灣50',      price: 0, yesterdayClose: 0 },
-    { symbol: '2330',   name: '台積電',          price: 0, yesterdayClose: 0 },
-    { symbol: '00631L', name: '元大台灣50正2',   price: 0, yesterdayClose: 0 },
-    { symbol: '00675L', name: '富邦臺灣加權正2', price: 0, yesterdayClose: 0 },
-  ],
-  'ETF': [],
+  watch1: { name: '關注', items: [
+    { symbol: '0050',   name: '元大台灣50' },
+    { symbol: '2330',   name: '台積電' },
+    { symbol: '00631L', name: '元大台灣50正2' },
+    { symbol: '00675L', name: '富邦臺灣加權正2' },
+  ]},
+  watch2: { name: '自選1', items: [] },
+  watch3: { name: '自選2', items: [] },
+  watch4: { name: '自選3', items: [] },
+  watch5: { name: '自選4', items: [] },
 }
 
-// 舊 array 格式 → 新 map 格式；新格式確保兩個 key 都存在
+// 任何舊格式 → watch1~watch5 map（runtime 保留行情欄位，不清洗）
 function migrateWatchlistToMap(data) {
-  if (Array.isArray(data)) {
-    return { '關注': data, 'ETF': [] }
-  }
   const result = {}
-  for (const cat of CATEGORIES) {
-    result[cat] = Array.isArray(data[cat]) ? data[cat] : []
+
+  if (Array.isArray(data)) {
+    // 最舊格式：array → 全放 watch1
+    WATCH_KEYS.forEach((wk, idx) => {
+      result[wk] = { name: WATCH_DEFAULT_NAMES[idx], items: idx === 0 ? data : [] }
+    })
+    return result
   }
+
+  if (data && typeof data === 'object') {
+    const firstVal = Object.values(data)[0]
+
+    if (Array.isArray(firstVal)) {
+      // 中間格式：{ '關注': [...], 'ETF': [...] }（key 是名稱）
+      const oldKeys = Object.keys(data)
+      WATCH_KEYS.forEach((wk, idx) => {
+        const oldKey = oldKeys[idx]
+        result[wk] = {
+          name:  oldKey ?? WATCH_DEFAULT_NAMES[idx],
+          items: (oldKey && Array.isArray(data[oldKey])) ? data[oldKey] : [],
+        }
+      })
+      return result
+    }
+
+    // 新格式：{ watch1: { name, items }, ... }
+    WATCH_KEYS.forEach((wk, idx) => {
+      const existing = data[wk]
+      result[wk] = (existing && typeof existing === 'object' && !Array.isArray(existing))
+        ? {
+            name:  (typeof existing.name === 'string' && existing.name.trim()) ? existing.name : WATCH_DEFAULT_NAMES[idx],
+            items: Array.isArray(existing.items) ? existing.items : [],
+          }
+        : { name: WATCH_DEFAULT_NAMES[idx], items: [] }
+    })
+    return result
+  }
+
+  // fallback
+  WATCH_KEYS.forEach((wk, idx) => {
+    result[wk] = { name: WATCH_DEFAULT_NAMES[idx], items: [] }
+  })
   return result
 }
 
@@ -1112,19 +1153,43 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
 
 function WatchlistPage() {
   const [watchlistMap, setWatchlistMap] = useState(loadWatchlist)
-  const [activeTab,    setActiveTab]    = useState(CATEGORIES[0])
+  const [activeTab,    setActiveTab]    = useState(WATCH_KEYS[0])
   const [taiex,        setTaiex]        = useState(TAIEX_INIT)
   const [showForm,     setShowForm]     = useState(false)
   const [isFetching,   setIsFetching]   = useState(false)
   const [lastUpdated,  setLastUpdated]  = useState('--')
   const [sortLocked,   setSortLocked]   = useState(loadSortLocked)
+  const [renamingKey,  setRenamingKey]  = useState(null)
+  const [renameInput,  setRenameInput]  = useState('')
+  const longPressTimer = useRef(null)
 
-  // 目前 tab 的股票清單
-  const list = watchlistMap[activeTab] ?? []
+  const activeCat = watchlistMap[activeTab] ?? { name: activeTab, items: [] }
+  const list = activeCat.items
 
   function saveMap(map) {
     setWatchlistMap(map)
     saveWatchlist(map)
+  }
+
+  function startLongPress(wk) {
+    longPressTimer.current = setTimeout(() => {
+      setRenamingKey(wk)
+      setRenameInput(watchlistMap[wk]?.name ?? '')
+    }, 600)
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
+  function commitRename() {
+    const trimmed = renameInput.trim()
+    if (!trimmed || !renamingKey) { setRenamingKey(null); return }
+    saveMap({ ...watchlistMap, [renamingKey]: { ...watchlistMap[renamingKey], name: trimmed } })
+    setRenamingKey(null)
   }
 
   function toggleLock() {
@@ -1138,7 +1203,7 @@ function WatchlistPage() {
     const oldIdx = list.findIndex(i => i.symbol === active.id)
     const newIdx = list.findIndex(i => i.symbol === over.id)
     const reordered = arrayMove(list, oldIdx, newIdx)
-    saveMap({ ...watchlistMap, [activeTab]: reordered })
+    saveMap({ ...watchlistMap, [activeTab]: { ...activeCat, items: reordered } })
   }
 
   const sensors = useSensors(
@@ -1146,40 +1211,41 @@ function WatchlistPage() {
     useSensor(TouchSensor,   { activationConstraint: { delay: 200, tolerance: 5 } })
   )
 
-  // 更新所有分類的股價 + 加權指數
   async function refreshWatchlist(currentMap, force = false) {
     setIsFetching(true)
     try {
       const allSymbols = [...new Set(
-        CATEGORIES.flatMap(cat => (currentMap[cat] ?? []).map(i => i.symbol))
+        WATCH_KEYS.flatMap(wk => (currentMap[wk]?.items ?? []).map(i => i.symbol))
       )]
       const symbols = ['t00', ...allSymbols]
       const map     = await fetchStockMapCached(symbols, force)
 
-      // 更新加權指數
       const taiexInfo = map['t00']
       if (taiexInfo) {
         const taiexPrice = taiexInfo.price !== null ? taiexInfo.price : taiex.price
         setTaiex({ ...TAIEX_INIT, price: taiexPrice, yesterdayClose: taiexInfo.yesterdayClose })
       }
 
-      // 更新每個分類的行情
       const updatedMap = {}
-      for (const cat of CATEGORIES) {
-        updatedMap[cat] = (currentMap[cat] ?? []).map(item => {
-          const found = map[item.symbol]
-          if (!found) return item
-          const price = found.price !== null ? found.price
-                      : (item.price > 0 ? item.price : found.yesterdayClose)
-          return {
-            ...item,
-            price,
-            yesterdayClose: found.yesterdayClose,
-            basePrice:      found.basePrice,
-            limitUp:        found.limitUp,
-            limitDown:      found.limitDown,
-          }
-        })
+      for (const wk of WATCH_KEYS) {
+        const cat = currentMap[wk] ?? { name: DEFAULT_WATCHLIST[wk].name, items: [] }
+        updatedMap[wk] = {
+          ...cat,
+          items: cat.items.map(item => {
+            const found = map[item.symbol]
+            if (!found) return item
+            const price = found.price !== null ? found.price
+                        : (item.price > 0 ? item.price : found.yesterdayClose)
+            return {
+              ...item,
+              price,
+              yesterdayClose: found.yesterdayClose,
+              basePrice:      found.basePrice,
+              limitUp:        found.limitUp,
+              limitDown:      found.limitDown,
+            }
+          }),
+        }
       }
       setWatchlistMap(updatedMap)
       saveWatchlist(updatedMap)
@@ -1198,12 +1264,12 @@ function WatchlistPage() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function addItem(item) {
-    saveMap({ ...watchlistMap, [activeTab]: [...list, item] })
+    saveMap({ ...watchlistMap, [activeTab]: { ...activeCat, items: [...list, item] } })
     setShowForm(false)
   }
 
   function deleteItem(symbol) {
-    saveMap({ ...watchlistMap, [activeTab]: list.filter(i => i.symbol !== symbol) })
+    saveMap({ ...watchlistMap, [activeTab]: { ...activeCat, items: list.filter(i => i.symbol !== symbol) } })
   }
 
   const taiexHasP  = taiex.price > 0 && taiex.yesterdayClose > 0
@@ -1258,20 +1324,30 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 分類 Tab：關注 | ETF */}
+      {/* 分類 Tab（長按改名） */}
       <div className="flex border-b border-gray-100">
-        {CATEGORIES.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setActiveTab(cat)}
-            className={`flex-1 py-2 text-sm font-medium transition-colors
-              ${activeTab === cat
-                ? 'text-gray-900 border-b-2 border-gray-900'
-                : 'text-gray-400 hover:text-gray-600'}`}
-          >
-            {cat}
-          </button>
-        ))}
+        {WATCH_KEYS.map(wk => {
+          const catName = watchlistMap[wk]?.name ?? wk
+          const isActive = activeTab === wk
+          return (
+            <button
+              key={wk}
+              onClick={() => setActiveTab(wk)}
+              onMouseDown={() => startLongPress(wk)}
+              onMouseUp={cancelLongPress}
+              onMouseLeave={cancelLongPress}
+              onTouchStart={() => startLongPress(wk)}
+              onTouchEnd={cancelLongPress}
+              onTouchCancel={cancelLongPress}
+              className={`flex-1 py-2 text-xs font-medium transition-colors select-none
+                ${isActive
+                  ? 'text-gray-900 border-b-2 border-gray-900'
+                  : 'text-gray-400 hover:text-gray-600'}`}
+            >
+              {catName}
+            </button>
+          )
+        })}
       </div>
 
       {/* 自選清單標題 + 鎖定按鈕 + 新增按鈕 */}
@@ -1332,6 +1408,34 @@ function WatchlistPage() {
           onSave={addItem}
           onCancel={() => setShowForm(false)}
         />
+      )}
+
+      {/* 分類改名 Modal */}
+      {renamingKey && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center px-6"
+          onClick={() => setRenamingKey(null)}>
+          <div className="w-full max-w-xs bg-white rounded-2xl p-5"
+            onClick={e => e.stopPropagation()}>
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">分類改名</h3>
+            <input
+              type="text"
+              value={renameInput}
+              onChange={e => setRenameInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && commitRename()}
+              maxLength={6}
+              autoFocus
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-500"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">最多 6 字元，長按分類可再次改名</p>
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setRenamingKey(null)}
+                className="flex-1 py-2 rounded-xl border border-gray-200 text-sm text-gray-600">取消</button>
+              <button onClick={commitRename}
+                disabled={!renameInput.trim()}
+                className="flex-1 py-2 rounded-xl bg-gray-900 text-white text-sm disabled:opacity-40">確定</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -1508,12 +1612,13 @@ function BackupModal({ onClose }) {
       if (raw) usAccountNames = JSON.parse(raw)
     } catch {}
 
-    // 清洗 watchlist：讀取 → 轉成 map → 每筆只保留 symbol/name
-    const rawWl     = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '[]')
+    // 清洗 watchlist：讀取 → 轉成 watch1~watch5 → 每筆只保留 symbol/name
+    const rawWl     = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || '{}')
     const wlMap     = migrateWatchlistToMap(rawWl)
     const cleanedWl = {}
-    for (const cat of CATEGORIES) {
-      cleanedWl[cat] = (wlMap[cat] ?? []).map(cleanWatchlistItem)
+    for (const wk of WATCH_KEYS) {
+      const cat = wlMap[wk]
+      cleanedWl[wk] = { name: cat.name, items: cat.items.map(cleanWatchlistItem) }
     }
 
     const backup = {
@@ -1557,11 +1662,12 @@ function BackupModal({ onClose }) {
           return
         }
 
-        // watchlist：轉成 map → 清洗行情欄位
+        // watchlist：轉成 watch1~watch5 → 清洗行情欄位
         const wlMigrated = migrateWatchlistToMap(wlRaw)
         const wlClean = {}
-        for (const cat of CATEGORIES) {
-          wlClean[cat] = (wlMigrated[cat] ?? []).map(cleanWatchlistItem)
+        for (const wk of WATCH_KEYS) {
+          const cat = wlMigrated[wk]
+          wlClean[wk] = { name: cat.name, items: cat.items.map(cleanWatchlistItem) }
         }
 
         // 還原台股持股 + 自選股
