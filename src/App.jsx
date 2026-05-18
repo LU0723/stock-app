@@ -633,9 +633,9 @@ function TopBar({ lastUpdated, isFetching, onRefresh, onBackup, onLongPress }) {
   }
 
   return (
-    <div className="flex items-center justify-between px-4 pt-8 pb-2">
+    <div className="flex items-center justify-between px-4 pt-10 pb-2">
       <h1
-        className="text-base font-semibold text-gray-800 tracking-wide select-none"
+        className="text-lg font-semibold text-gray-800 tracking-wide select-none"
         onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
         onTouchStart={startPress} onTouchEnd={cancelPress} onTouchCancel={cancelPress}
       >台股持股 (TWD)</h1>
@@ -1191,8 +1191,8 @@ function WatchlistPage() {
   return (
     <div className="pb-4">
       {/* 標題列 */}
-      <div className="flex items-center justify-between px-4 pt-8 pb-2 border-b border-gray-100">
-        <h1 className="text-base font-semibold text-gray-900 tracking-wide">自選股</h1>
+      <div className="flex items-center justify-between px-4 pt-10 pb-2 border-b border-gray-100">
+        <h1 className="text-lg font-semibold text-gray-900 tracking-wide">自選股</h1>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-500">
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
@@ -1208,22 +1208,22 @@ function WatchlistPage() {
       </div>
 
       {/* 加權指數卡片（橫向精簡一列） */}
-      <div className="px-4 pt-2 pb-1.5">
+      <div className="px-4 pt-2.5 pb-2">
         <div
-          className="bg-white rounded-xl border border-gray-200 px-3 py-2 cursor-pointer active:bg-gray-50 transition-colors flex items-center gap-2"
+          className="bg-white rounded-xl border border-gray-200 px-4 py-2.5 cursor-pointer active:bg-gray-50 transition-colors flex items-center gap-3"
           onClick={() => window.open('https://tw.stock.yahoo.com/t/idx.php', '_blank', 'noopener,noreferrer')}
         >
-          <span className="text-[11px] text-gray-500 shrink-0">加權指數</span>
-          <span className={`text-sm font-bold tabular-nums flex-1 ${taiexColor}`}>
+          <span className="text-xs text-gray-500 shrink-0">加權指數</span>
+          <span className={`text-base font-bold tabular-nums flex-1 ${taiexColor}`}>
             {taiexHasP ? taiex.price.toLocaleString() : '--'}
           </span>
-          <span className={`text-xs font-semibold tabular-nums shrink-0 ${taiexColor}`}>
+          <span className={`text-sm font-semibold tabular-nums shrink-0 ${taiexColor}`}>
             {taiexHasP ? `${taiexArrow}${Math.abs(taiexChAmt).toFixed(2)}` : '--'}
           </span>
-          <span className={`text-xs tabular-nums shrink-0 ${taiexColor}`}>
+          <span className={`text-sm tabular-nums shrink-0 ${taiexColor}`}>
             {taiexHasP ? `${taiexSign}${taiexChPct.toFixed(2)}%` : '--'}
           </span>
-          <span className="text-[10px] text-gray-400 shrink-0 pl-1">查看K線 ›</span>
+          <span className="text-[11px] text-gray-400 shrink-0 pl-1">查看K線 ›</span>
         </div>
       </div>
 
@@ -3574,8 +3574,8 @@ function UsHoldingsPage() {
   return (
     <div>
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 pt-8 pb-2">
-        <h1 className="text-base font-semibold text-gray-800 tracking-wide">美股持股 (USD)</h1>
+      <div className="flex items-center justify-between px-4 pt-10 pb-2">
+        <h1 className="text-lg font-semibold text-gray-800 tracking-wide">美股持股 (USD)</h1>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-500">
             {isFetching ? '更新中...' : `更新 ${lastUpdated}`}
