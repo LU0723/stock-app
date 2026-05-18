@@ -1438,8 +1438,9 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 目前分類股票清單（左右滑動切換分類，鎖定狀態才啟用） */}
-      <div ref={swipeContainerRef}>
+      {/* 目前分類股票清單（左右滑動切換分類，鎖定狀態才啟用）
+          min-h-[50vh]：確保空分類時容器仍有足夠高度，避免 touchstart 落在 div 外 */}
+      <div ref={swipeContainerRef} className="min-h-[50vh]">
         {list.length === 0 ? (
           <div className="p-10 text-center">
             <p className="text-gray-400 text-sm">尚無自選股</p>
