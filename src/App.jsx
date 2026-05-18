@@ -1420,6 +1420,15 @@ function SortableWatchlistRow({ item, onDelete }) {
 
 // ─── 備份 / 還原 ─────────────────────────────────────────────────────────────
 
+// 清洗自選股單筆：只保留 symbol / name / categories，去除行情暫存欄位
+function cleanWatchlistItem(item) {
+  const clean = { symbol: item.symbol, name: item.name }
+  if (Array.isArray(item.categories) && item.categories.length > 0) {
+    clean.categories = item.categories
+  }
+  return clean
+}
+
 // 驗證 performanceMonthlyLedger 格式
 // 回傳 true = 合法（或空物件），false = 格式有問題
 function isValidLedger(ledger) {
@@ -1460,7 +1469,7 @@ function BackupModal({ onClose }) {
       version:    4,
       exportedAt: now.toISOString(),
       holdings:   JSON.parse(localStorage.getItem(STORAGE_KEY)     || '[]'),
-      watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]'),
+      watchlist:  JSON.parse(localStorage.getItem(WATCHLIST_KEY)   || '[]').map(cleanWatchlistItem),
       sortLocked: localStorage.getItem(SORT_LOCK_KEY) ?? 'true',
       performanceMonthlyLedger: ledger,
       // 美股持股（v3+）
@@ -1496,7 +1505,7 @@ function BackupModal({ onClose }) {
 
         // 還原台股持股 + 自選股（必要欄位）
         localStorage.setItem(STORAGE_KEY,   JSON.stringify(data.holdings.map(migrateHolding)))
-        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist))
+        localStorage.setItem(WATCHLIST_KEY, JSON.stringify(data.watchlist.map(cleanWatchlistItem)))
         if (data.sortLocked !== undefined) {
           localStorage.setItem(SORT_LOCK_KEY, String(data.sortLocked))
         }
