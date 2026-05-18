@@ -1424,7 +1424,7 @@ function WatchlistPage() {
               onKeyDown={e => e.key === 'Enter' && commitRename()}
               maxLength={6}
               autoFocus
-              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-gray-500"
+              className="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-gray-500"
             />
             <p className="text-[10px] text-gray-400 mt-1">最多 6 字元，長按分類可再次改名</p>
             <div className="flex gap-2 mt-4">
