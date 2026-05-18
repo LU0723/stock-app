@@ -633,7 +633,7 @@ function TopBar({ lastUpdated, isFetching, onRefresh, onBackup, onLongPress }) {
   }
 
   return (
-    <div className="flex items-center justify-between px-4 pt-0 pb-2">
+    <div className="flex items-center justify-between px-4 pt-2.5 pb-2">
       <h1
         className="text-lg font-semibold text-gray-800 tracking-wide select-none"
         onMouseDown={startPress} onMouseUp={cancelPress} onMouseLeave={cancelPress}
@@ -1191,7 +1191,7 @@ function WatchlistPage() {
   return (
     <div className="pb-4">
       {/* 標題列 */}
-      <div className="flex items-center justify-between px-4 pt-0 pb-2 border-b border-gray-100">
+      <div className="flex items-center justify-between px-4 pt-2.5 pb-2 border-b border-gray-100">
         <h1 className="text-lg font-semibold text-gray-900 tracking-wide">自選股</h1>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-500">
@@ -3574,7 +3574,7 @@ function UsHoldingsPage() {
   return (
     <div>
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 pt-0 pb-2">
+      <div className="flex items-center justify-between px-4 pt-2.5 pb-2">
         <h1 className="text-lg font-semibold text-gray-800 tracking-wide">美股持股 (USD)</h1>
         <div className="flex items-center gap-2">
           <span className="text-[11px] text-gray-500">
