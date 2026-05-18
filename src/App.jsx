@@ -1162,6 +1162,7 @@ function WatchlistPage() {
   const [renamingKey,  setRenamingKey]  = useState(null)
   const [renameInput,  setRenameInput]  = useState('')
   const longPressTimer = useRef(null)
+  const swipeRef       = useRef({ x: 0, y: 0 })
 
   const activeCat = watchlistMap[activeTab] ?? { name: activeTab, items: [] }
   const list = activeCat.items
@@ -1190,6 +1191,24 @@ function WatchlistPage() {
     if (!trimmed || !renamingKey) { setRenamingKey(null); return }
     saveMap({ ...watchlistMap, [renamingKey]: { ...watchlistMap[renamingKey], name: trimmed } })
     setRenamingKey(null)
+  }
+
+  // 左右滑動切換分類（僅鎖定狀態啟用，避免干擾拖曳排序）
+  function handleSwipeTouchStart(e) {
+    if (!sortLocked) return
+    const t = e.touches[0]
+    swipeRef.current = { x: t.clientX, y: t.clientY }
+  }
+
+  function handleSwipeTouchEnd(e) {
+    if (!sortLocked) return
+    const t  = e.changedTouches[0]
+    const dx = t.clientX - swipeRef.current.x
+    const dy = t.clientY - swipeRef.current.y
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return
+    const curIdx = WATCH_KEYS.indexOf(activeTab)
+    if (dx < 0 && curIdx < WATCH_KEYS.length - 1) setActiveTab(WATCH_KEYS[curIdx + 1])
+    if (dx > 0 && curIdx > 0)                      setActiveTab(WATCH_KEYS[curIdx - 1])
   }
 
   function toggleLock() {
@@ -1380,27 +1399,29 @@ function WatchlistPage() {
         </div>
       </div>
 
-      {/* 目前分類股票清單 */}
-      {list.length === 0 ? (
-        <div className="p-10 text-center">
-          <p className="text-gray-400 text-sm">尚無自選股</p>
-          <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
-        </div>
-      ) : sortLocked ? (
-        <div>
-          {list.map(item => (
-            <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
-          ))}
-        </div>
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={list.map(i => i.symbol)} strategy={verticalListSortingStrategy}>
+      {/* 目前分類股票清單（左右滑動切換分類，鎖定狀態才啟用） */}
+      <div onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}>
+        {list.length === 0 ? (
+          <div className="p-10 text-center">
+            <p className="text-gray-400 text-sm">尚無自選股</p>
+            <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+          </div>
+        ) : sortLocked ? (
+          <div>
             {list.map(item => (
-              <SortableWatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+              <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
             ))}
-          </SortableContext>
-        </DndContext>
-      )}
+          </div>
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={list.map(i => i.symbol)} strategy={verticalListSortingStrategy}>
+              {list.map(item => (
+                <SortableWatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+              ))}
+            </SortableContext>
+          </DndContext>
+        )}
+      </div>
 
       {showForm && (
         <WatchlistForm
