@@ -1161,8 +1161,9 @@ function WatchlistPage() {
   const [sortLocked,   setSortLocked]   = useState(loadSortLocked)
   const [renamingKey,  setRenamingKey]  = useState(null)
   const [renameInput,  setRenameInput]  = useState('')
-  const longPressTimer = useRef(null)
-  const swipeRef       = useRef({ x: 0, y: 0 })
+  const longPressTimer    = useRef(null)
+  const swipeContainerRef = useRef(null)
+  const sortLockedRef     = useRef(sortLocked)
 
   const activeCat = watchlistMap[activeTab] ?? { name: activeTab, items: [] }
   const list = activeCat.items
@@ -1193,23 +1194,53 @@ function WatchlistPage() {
     setRenamingKey(null)
   }
 
-  // 左右滑動切換分類（僅鎖定狀態啟用，避免干擾拖曳排序）
-  function handleSwipeTouchStart(e) {
-    if (!sortLocked) return
-    const t = e.touches[0]
-    swipeRef.current = { x: t.clientX, y: t.clientY }
-  }
+  // sortLockedRef 同步最新值，供原生 event listener 讀取
+  useEffect(() => { sortLockedRef.current = sortLocked }, [sortLocked])
 
-  function handleSwipeTouchEnd(e) {
-    if (!sortLocked) return
-    const t  = e.changedTouches[0]
-    const dx = t.clientX - swipeRef.current.x
-    const dy = t.clientY - swipeRef.current.y
-    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return
-    const curIdx = WATCH_KEYS.indexOf(activeTab)
-    if (dx < 0 && curIdx < WATCH_KEYS.length - 1) setActiveTab(WATCH_KEYS[curIdx + 1])
-    if (dx > 0 && curIdx > 0)                      setActiveTab(WATCH_KEYS[curIdx - 1])
-  }
+  // 原生 touch listeners（passive:false 的 touchmove 才能 preventDefault 攔截捲動）
+  useEffect(() => {
+    const el = swipeContainerRef.current
+    if (!el) return
+    let startX = 0, startY = 0, isHoriz = false
+
+    function onStart(e) {
+      if (!sortLockedRef.current) return
+      startX = e.touches[0].clientX
+      startY = e.touches[0].clientY
+      isHoriz = false
+    }
+    function onMove(e) {
+      if (!sortLockedRef.current) return
+      const dx = e.touches[0].clientX - startX
+      const dy = e.touches[0].clientY - startY
+      if (!isHoriz && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 8) {
+        isHoriz = true
+      }
+      if (isHoriz) e.preventDefault()
+    }
+    function onEnd(e) {
+      if (!sortLockedRef.current || !isHoriz) return
+      const dx = e.changedTouches[0].clientX - startX
+      const dy = e.changedTouches[0].clientY - startY
+      isHoriz = false
+      if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy)) return
+      setActiveTab(prev => {
+        const i = WATCH_KEYS.indexOf(prev)
+        if (dx < 0 && i < WATCH_KEYS.length - 1) return WATCH_KEYS[i + 1]
+        if (dx > 0 && i > 0)                      return WATCH_KEYS[i - 1]
+        return prev
+      })
+    }
+
+    el.addEventListener('touchstart', onStart, { passive: true })
+    el.addEventListener('touchmove',  onMove,  { passive: false })
+    el.addEventListener('touchend',   onEnd,   { passive: true })
+    return () => {
+      el.removeEventListener('touchstart', onStart)
+      el.removeEventListener('touchmove',  onMove)
+      el.removeEventListener('touchend',   onEnd)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggleLock() {
     const next = !sortLocked
@@ -1400,7 +1431,7 @@ function WatchlistPage() {
       </div>
 
       {/* 目前分類股票清單（左右滑動切換分類，鎖定狀態才啟用） */}
-      <div onTouchStart={handleSwipeTouchStart} onTouchEnd={handleSwipeTouchEnd}>
+      <div ref={swipeContainerRef}>
         {list.length === 0 ? (
           <div className="p-10 text-center">
             <p className="text-gray-400 text-sm">尚無自選股</p>
