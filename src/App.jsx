@@ -808,10 +808,16 @@ function HoldingForm({ initial, onSave, onCancel }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-white mb-1 block">開倉日期</label>
-            <input type="date" value={form.buyDate} onChange={e => set('buyDate', e.target.value)}
-              max={new Date().toISOString().slice(0, 10)}
-              className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]" />
+            <label className="text-xs text-white mb-1 block">{isEdit ? '編輯日期' : '開倉日期'}</label>
+            {isEdit ? (
+              <div className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-gray-400">
+                {new Date().toISOString().slice(0, 10)}
+              </div>
+            ) : (
+              <input type="date" value={form.buyDate} onChange={e => set('buyDate', e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+                className="w-full bg-[#111] border border-[#333] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#555]" />
+            )}
           </div>
           <p className="text-xs text-white">現價與昨收將在儲存後自動更新。</p>
           <div className="flex gap-2 mt-1">
@@ -1161,6 +1167,7 @@ function WatchlistPage() {
   const [sortLocked,   setSortLocked]   = useState(loadSortLocked)
   const [renamingKey,  setRenamingKey]  = useState(null)
   const [renameInput,  setRenameInput]  = useState('')
+  const [swipeDir,     setSwipeDir]     = useState(null) // 'left' | 'right' | null
   const longPressTimer    = useRef(null)
   const swipeContainerRef = useRef(null)
   const sortLockedRef     = useRef(sortLocked)
@@ -1237,6 +1244,7 @@ function WatchlistPage() {
       const nextTab      = WATCH_KEYS[nextIndex]
       console.log('[watchlist swipe]', { currentTab, currentIndex, direction, nextIndex, nextTab })
       if (nextIndex < 0 || nextIndex >= WATCH_KEYS.length) return
+      setSwipeDir(dx < 0 ? 'left' : 'right')
       setActiveTab(nextTab)
     }
 
@@ -1390,7 +1398,7 @@ function WatchlistPage() {
           return (
             <button
               key={wk}
-              onClick={() => setActiveTab(wk)}
+              onClick={() => { setSwipeDir(null); setActiveTab(wk) }}
               onMouseDown={() => startLongPress(wk)}
               onMouseUp={cancelLongPress}
               onMouseLeave={cancelLongPress}
@@ -1409,7 +1417,7 @@ function WatchlistPage() {
       </div>
 
       {/* 自選清單標題 + 股票清單（flex-1 撐滿剩餘高度，讓整個空白區都可左右滑動切換分類） */}
-      <div ref={swipeContainerRef} className="flex-1">
+      <div ref={swipeContainerRef} className="flex-1 overflow-x-hidden">
         <div className="flex items-center justify-between px-4 py-1.5 border-b border-gray-100">
           <p className="text-[10px] text-gray-600 uppercase tracking-wider">自選清單 {list.length} 檔</p>
           <div className="flex items-center gap-2">
@@ -1438,26 +1446,35 @@ function WatchlistPage() {
             </button>
           </div>
         </div>
-        {list.length === 0 ? (
-          <div className="p-10 text-center">
-            <p className="text-gray-400 text-sm">尚無自選股</p>
-            <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
-          </div>
-        ) : sortLocked ? (
-          <div>
-            {list.map(item => (
-              <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
-            ))}
-          </div>
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={list.map(i => i.symbol)} strategy={verticalListSortingStrategy}>
+        <div
+          key={activeTab}
+          className={
+            swipeDir === 'left'  ? 'watchlist-slide-left'  :
+            swipeDir === 'right' ? 'watchlist-slide-right' :
+            'watchlist-fade'
+          }
+        >
+          {list.length === 0 ? (
+            <div className="p-10 text-center">
+              <p className="text-gray-400 text-sm">尚無自選股</p>
+              <p className="text-gray-300 text-xs mt-1">點擊「+ 新增」加入第一筆</p>
+            </div>
+          ) : sortLocked ? (
+            <div>
               {list.map(item => (
-                <SortableWatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+                <WatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
               ))}
-            </SortableContext>
-          </DndContext>
-        )}
+            </div>
+          ) : (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={list.map(i => i.symbol)} strategy={verticalListSortingStrategy}>
+                {list.map(item => (
+                  <SortableWatchlistRow key={item.symbol} item={item} onDelete={() => deleteItem(item.symbol)} />
+                ))}
+              </SortableContext>
+            </DndContext>
+          )}
+        </div>
       </div>
 
       {showForm && (
