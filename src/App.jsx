@@ -742,6 +742,7 @@ function HoldingForm({ initial, onSave, onCancel }) {
   }
 
   useEffect(() => {
+    if (isEdit) return
     const sym = form.symbol.trim().toUpperCase()
     if (!sym) return
     clearTimeout(lookupTimerRef.current)
@@ -3602,6 +3603,7 @@ function UsHoldingForm({ initial, onSave, onCancel }) {
   }
 
   useEffect(() => {
+    if (isEdit) return
     const sym = form.symbol.trim().toUpperCase()
     if (!sym) return
     clearTimeout(lookupTimerRef.current)
