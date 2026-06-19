@@ -2939,6 +2939,7 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
     totalPnL:    Math.round(periodPnL),
     totalReturn: periodReturn,
     chartPts,
+    dailyAsc,
     daily: [...dailyAsc].reverse(),   // UI 顯示由新到舊
   }
 }
@@ -2991,6 +2992,210 @@ function BacktestLineChart({ pts }) {
           <circle cx={toX(pts.length - 1).toFixed(1)} cy={toY(pts[pts.length - 1]).toFixed(1)} r="2.5" fill="#8b5cf6" />
         </svg>
       )}
+    </div>
+  )
+}
+
+function formatWanAmount(value) {
+  const abs = Math.abs(Number(value) || 0)
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  if (abs >= 10000) {
+    const wan = abs / 10000
+    const fixed = wan >= 10 ? wan.toFixed(1) : wan.toFixed(2)
+    return `${sign}${fixed.replace(/\.0$/, '')}萬`
+  }
+  return `${sign}${formatNumber(Math.round(abs))}`
+}
+
+function monthKeyFromDate(dateStr) {
+  return dateStr.slice(0, 7)
+}
+
+function addMonths(monthKey, delta) {
+  const [year, month] = monthKey.split('-').map(Number)
+  const d = new Date(year, month - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function getMonthBounds(monthKey) {
+  const [year, month] = monthKey.split('-').map(Number)
+  const start = `${year}-${String(month).padStart(2, '0')}-01`
+  const endDay = new Date(year, month, 0).getDate()
+  return { start, end: `${year}-${String(month).padStart(2, '0')}-${String(endDay).padStart(2, '0')}` }
+}
+
+function getMonthChoices(minMonth, maxMonth) {
+  const result = []
+  let cur = minMonth
+  while (cur <= maxMonth) {
+    result.push(cur)
+    cur = addMonths(cur, 1)
+  }
+  return result
+}
+
+function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
+  const choices = getMonthChoices(minMonth, maxMonth)
+  const years = [...new Set(choices.map(m => m.slice(0, 4)))]
+  const [draftYear, setDraftYear] = useState(value.slice(0, 4))
+  const [draftMonth, setDraftMonth] = useState(value.slice(5, 7))
+  const availableMonths = choices
+    .filter(m => m.startsWith(`${draftYear}-`))
+    .map(m => m.slice(5, 7))
+
+  useEffect(() => {
+    if (!availableMonths.includes(draftMonth)) {
+      setDraftMonth(availableMonths[0] ?? '01')
+    }
+  }, [draftYear]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const picked = `${draftYear}-${draftMonth}`
+  const canConfirm = choices.includes(picked)
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end">
+      <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
+      <div className="relative bg-[#262626] text-white rounded-t-3xl pb-8 shadow-xl max-w-md mx-auto w-full">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
+          <button onClick={onCancel} className="text-blue-400 text-base">取消</button>
+          <p className="text-lg font-semibold">選擇月份</p>
+          <button
+            onClick={() => canConfirm && onConfirm(picked)}
+            className={`text-base font-semibold ${canConfirm ? 'text-blue-400' : 'text-white/20'}`}
+          >確定</button>
+        </div>
+        <div className="grid grid-cols-2 gap-3 px-5 py-5">
+          <div className="max-h-56 overflow-y-auto rounded-2xl bg-black/10 p-1">
+            {years.map(year => (
+              <button
+                key={year}
+                onClick={() => setDraftYear(year)}
+                className={`w-full py-3 rounded-xl text-xl transition-colors ${
+                  draftYear === year ? 'bg-white/20 text-white font-semibold' : 'text-white/35'
+                }`}
+              >{year}年</button>
+            ))}
+          </div>
+          <div className="max-h-56 overflow-y-auto rounded-2xl bg-black/10 p-1">
+            {Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0')).map(month => {
+              const enabled = availableMonths.includes(month)
+              return (
+                <button
+                  key={month}
+                  disabled={!enabled}
+                  onClick={() => setDraftMonth(month)}
+                  className={`w-full py-3 rounded-xl text-xl transition-colors ${
+                    draftMonth === month && enabled ? 'bg-white/20 text-white font-semibold' :
+                    enabled ? 'text-white/35' : 'text-white/10'
+                  }`}
+                >{Number(month)}月</button>
+              )
+            })}
+          </div>
+        </div>
+        <p className="text-xs text-white/20 text-center">
+          資料紀錄最早支援到 {minMonth.replace('-', '/')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
+function CalendarInfoModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-8">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-[#262626] text-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+        <h2 className="text-xl font-semibold text-center mb-5">報酬日曆</h2>
+        <p className="text-base leading-8 text-white/75">
+          月報酬 = 當月的日損益總和。<br />
+          月報酬率 = 月報酬 / 該月第一個有效交易日前的持股市值。<br />
+          日損益依歷史收盤價與你的持股變化紀錄計算。
+        </p>
+        <button
+          onClick={onClose}
+          className="mt-6 w-full py-3 rounded-xl bg-orange-500 text-white text-base font-medium"
+        >我知道了</button>
+      </div>
+    </div>
+  )
+}
+
+function RewardCalendar({ monthKey, result }) {
+  const { start } = getMonthBounds(monthKey)
+  const [year, month] = monthKey.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const firstDow = new Date(`${start}T00:00:00`).getDay()
+  const mondayOffset = firstDow === 0 ? 4 : firstDow - 1
+  const dayMap = new Map((result?.dailyAsc ?? []).map(d => [d.date.replace(/\//g, '-'), d]))
+  const weeks = []
+  let day = 1 - mondayOffset
+  while (day <= daysInMonth) {
+    const row = []
+    for (let i = 0; i < 5; i++) {
+      if (day < 1 || day > daysInMonth) {
+        row.push(null)
+      } else {
+        const date = `${monthKey}-${String(day).padStart(2, '0')}`
+        row.push({ day, data: dayMap.get(date) ?? null })
+      }
+      day++
+    }
+    const weekDays = row.filter(Boolean)
+    const weekPnl = weekDays.reduce((sum, d) => sum + (d.data?.pnl ?? 0), 0)
+    const weekBase = weekDays.reduce((sum, d) => {
+      if (!d.data || d.data.ret === 0) return sum
+      return sum + Math.abs(d.data.pnl / d.data.ret)
+    }, 0)
+    weeks.push({ row, weekPnl, weekRet: weekBase > 0 ? weekPnl / weekBase : null })
+  }
+
+  return (
+    <div className="mb-4">
+      <div className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.95fr] gap-1.5 mb-2 px-0.5">
+        {['一', '二', '三', '四', '五', '週損益'].map(label => (
+          <div key={label} className="text-center text-xs text-gray-400">{label}</div>
+        ))}
+      </div>
+      <div className="space-y-1.5">
+        {weeks.map((week, wi) => (
+          <div key={wi} className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.95fr] gap-1.5">
+            {week.row.map((cell, ci) => {
+              const pnl = cell?.data?.pnl ?? 0
+              const hasData = !!cell?.data
+              const color = hasData
+                ? pnl > 0 ? 'bg-red-500/40 border-red-400/20' : pnl < 0 ? 'bg-green-600/40 border-green-500/20' : 'bg-gray-800 border-gray-700'
+                : 'bg-gray-900/40 border-gray-800'
+              return (
+                <div key={ci} className={`relative aspect-[0.82] rounded-xl border ${color} px-1.5 py-1.5 overflow-hidden`}>
+                  {cell && <span className="absolute right-1.5 top-0.5 text-xs text-gray-300">{cell.day}</span>}
+                  {hasData && (
+                    <div className="h-full flex flex-col justify-end">
+                      <p className="text-[13px] leading-tight font-semibold text-white tabular-nums">{formatWanAmount(pnl)}</p>
+                      <p className="text-[12px] leading-tight text-white/65 tabular-nums">
+                        {cell.data.ret >= 0 ? '+' : ''}{(cell.data.ret * 100).toFixed(2)}%
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            <div className="relative aspect-[0.82] rounded-xl border border-gray-700 bg-gray-900/60 px-1.5 py-1.5 overflow-hidden">
+              <span className="absolute right-1.5 top-0.5 text-xs text-gray-400">{wi + 1}</span>
+              {week.weekRet !== null && (
+                <div className="h-full flex flex-col justify-end">
+                  <p className={`text-[13px] leading-tight font-semibold tabular-nums ${week.weekPnl >= 0 ? 'text-red-400' : 'text-green-500'}`}>
+                    {formatWanAmount(week.weekPnl)}
+                  </p>
+                  <p className="text-[12px] leading-tight text-white/55 tabular-nums">
+                    {week.weekRet >= 0 ? '+' : ''}{(week.weekRet * 100).toFixed(2)}%
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -3083,6 +3288,9 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
 function BacktestView({ isTw, twHoldings }) {
   const [period,      setPeriod]      = useState(7)
   const [showPicker,  setShowPicker]  = useState(false)
+  const [showMonthPicker, setShowMonthPicker] = useState(false)
+  const [showInfo, setShowInfo] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState(monthKeyFromDate(todayISOStr()))
   const [customRange, setCustomRange] = useState(null)   // { start, end } | null
 
   // TW / US 都 fetch 真實資料
@@ -3115,6 +3323,15 @@ function BacktestView({ isTw, twHoldings }) {
   }, [usHoldings])
 
   const minDate = isTw ? earliestTwDate : earliestUsDate
+  const today = todayISOStr()
+  const minMonth = monthKeyFromDate(earliestTwDate)
+  const maxMonth = monthKeyFromDate(today)
+
+  useEffect(() => {
+    if (!isTw) return
+    if (selectedMonth < minMonth) setSelectedMonth(minMonth)
+    if (selectedMonth > maxMonth) setSelectedMonth(maxMonth)
+  }, [isTw, selectedMonth, minMonth, maxMonth])
 
   // 市場切換時清除自訂區間
   const prevIsTwRef = useRef(isTw)
@@ -3127,9 +3344,12 @@ function BacktestView({ isTw, twHoldings }) {
   }
 
   // 計算本次回測的日期區間
-  const today = todayISOStr()
   let startDate, endDate
-  if (period === 'custom' && customRange) {
+  if (isTw) {
+    const bounds = getMonthBounds(selectedMonth)
+    startDate = bounds.start
+    endDate   = bounds.end > today ? today : bounds.end
+  } else if (period === 'custom' && customRange) {
     startDate = customRange.start
     endDate   = customRange.end
   } else {
@@ -3243,6 +3463,96 @@ function BacktestView({ isTw, twHoldings }) {
     setShowPicker(false)
     setPeriod('custom')
     setCustomRange({ start, end })
+  }
+
+  if (isTw) {
+    const [selYear, selMonth] = selectedMonth.split('-')
+    const canPrev = addMonths(selectedMonth, -1) >= minMonth
+    const canNext = addMonths(selectedMonth, 1) <= maxMonth
+    const monthLabel = `${selYear}/${selMonth} 報酬`
+    const totalPnl = display?.totalPnL ?? 0
+    const totalReturn = display?.totalReturn ?? 0
+
+    return (
+      <>
+        <div className="bg-[#202020] text-white rounded-2xl p-4 mb-4 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <p className="text-xl font-semibold">報酬日曆</p>
+            <button
+              onClick={() => setShowInfo(true)}
+              className="w-5 h-5 rounded-full border border-white/40 text-white/60 text-xs leading-none"
+              title="計算說明"
+            >i</button>
+          </div>
+
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <button
+                disabled={!canPrev}
+                onClick={() => setSelectedMonth(addMonths(selectedMonth, -1))}
+                className="w-8 h-8 rounded-full bg-white/5 text-white/60 disabled:opacity-20"
+              >‹</button>
+              <button
+                onClick={() => setShowMonthPicker(true)}
+                className="flex items-center gap-1 text-2xl font-semibold"
+              >
+                {monthLabel}
+                <span className="text-white/50 text-lg">⌄</span>
+              </button>
+              <button
+                disabled={!canNext}
+                onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
+                className="w-8 h-8 rounded-full bg-white/5 text-white/60 disabled:opacity-20"
+              >›</button>
+            </div>
+            <p className="text-sm text-white/50">報酬率</p>
+          </div>
+
+          <div className="flex items-end justify-between mb-5">
+            <p className={`text-4xl font-bold tabular-nums ${totalPnl >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+              {display ? formatWanAmount(totalPnl) : '--'}
+            </p>
+            <p className={`text-3xl font-bold tabular-nums ${totalReturn >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+              {display ? `${totalReturn >= 0 ? '+' : ''}${(totalReturn * 100).toFixed(2)}%` : '--'}
+            </p>
+          </div>
+
+          {isLoading && (
+            <div className="py-8 flex items-center justify-center gap-2">
+              <svg className="animate-spin w-4 h-4 text-white/50" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" />
+              </svg>
+              <span className="text-xs text-white/50">載入歷史資料中...</span>
+            </div>
+          )}
+
+          {!isLoading && btError && (
+            <div className="py-8 text-center text-sm text-red-300">{btError}</div>
+          )}
+
+          {!isLoading && !btError && (
+            <RewardCalendar monthKey={selectedMonth} result={display} />
+          )}
+
+          {!isLoading && !btError && !display && (
+            <p className="text-xs text-white/35 text-center pb-2">此月份無交易資料</p>
+          )}
+        </div>
+
+        <BacktestLineChart pts={display?.chartPts ?? []} />
+
+        {showMonthPicker && (
+          <MonthPickerSheet
+            value={selectedMonth}
+            minMonth={minMonth}
+            maxMonth={maxMonth}
+            onConfirm={m => { setSelectedMonth(m); setShowMonthPicker(false) }}
+            onCancel={() => setShowMonthPicker(false)}
+          />
+        )}
+        {showInfo && <CalendarInfoModal onClose={() => setShowInfo(false)} />}
+      </>
+    )
   }
 
   return (
