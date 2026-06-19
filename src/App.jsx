@@ -2865,6 +2865,30 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
     return start <= day ? { shares: h.shares, avgCost: h.avgCost } : null
   }
 
+  function previousEffectiveState(h, day) {
+    if (Array.isArray(h.changes) && h.changes.length > 0) {
+      const sorted = h.changes.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+      let state = null
+      for (const c of sorted) {
+        if (c.date < day) state = c
+        else break
+      }
+      return state
+    }
+    const start = h.buyDate || startDate
+    return start < day ? { shares: h.shares, avgCost: h.avgCost } : null
+  }
+
+  function addedShareCost(prevState, state) {
+    const prevShares = prevState?.shares ?? 0
+    const addedShares = state.shares - prevShares
+    if (!(addedShares > 0)) return state.avgCost
+    if (!prevState || !(prevShares > 0)) return state.avgCost
+    const addedCost = (state.avgCost * state.shares) - (prevState.avgCost * prevShares)
+    const inferred = addedCost / addedShares
+    return Number.isFinite(inferred) && inferred > 0 ? inferred : state.avgCost
+  }
+
   const dailyAsc = []   // 由舊到新，最後 reverse 給 UI 用
   const chartPts = []
   let periodPnL  = 0    // 區間內所有交易日的日損益加總
@@ -2891,8 +2915,21 @@ function computeTwBacktest(holdings, startDate, endDate, priceMap) {
 
       const pc = prevClose(symbol, day)
       if (pc != null) {
-        dailyPnL += (close - pc) * shares
-        prevMV   += pc * shares
+        const holding = holdings.find(h => h.symbol === symbol)
+        const prevState = holding ? previousEffectiveState(holding, day) : null
+        const prevShares = prevState?.shares ?? 0
+
+        if (shares > prevShares) {
+          const addedShares = shares - prevShares
+          const buyCost = addedShareCost(prevState, state)
+          dailyPnL += (close - pc) * prevShares
+          dailyPnL += (close - buyCost) * addedShares
+          prevMV   += pc * prevShares
+          prevMV   += buyCost * addedShares
+        } else {
+          dailyPnL += (close - pc) * shares
+          prevMV   += pc * shares
+        }
       }
       // 若無前收（第一個有效交易日），該股當日損益貢獻記為 0
     }
@@ -3048,15 +3085,26 @@ function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
   const years = [...new Set(choices.map(m => m.slice(0, 4)))]
   const [draftYear, setDraftYear] = useState(value.slice(0, 4))
   const [draftMonth, setDraftMonth] = useState(value.slice(5, 7))
+  const yearBtnRefs = useRef({})
+  const monthBtnRefs = useRef({})
   const availableMonths = choices
     .filter(m => m.startsWith(`${draftYear}-`))
     .map(m => m.slice(5, 7))
+
+  useEffect(() => {
+    yearBtnRefs.current[draftYear]?.scrollIntoView({ block: 'center' })
+    monthBtnRefs.current[draftMonth]?.scrollIntoView({ block: 'center' })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!availableMonths.includes(draftMonth)) {
       setDraftMonth(availableMonths[0] ?? '01')
     }
   }, [draftYear]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    monthBtnRefs.current[draftMonth]?.scrollIntoView({ block: 'center' })
+  }, [draftMonth])
 
   const picked = `${draftYear}-${draftMonth}`
   const canConfirm = choices.includes(picked)
@@ -3078,6 +3126,7 @@ function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
             {years.map(year => (
               <button
                 key={year}
+                ref={el => { if (el) yearBtnRefs.current[year] = el }}
                 onClick={() => setDraftYear(year)}
                 className={`w-full py-3 rounded-xl text-xl transition-colors ${
                   draftYear === year ? 'bg-white/20 text-white font-semibold' : 'text-white/35'
@@ -3091,6 +3140,7 @@ function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
               return (
                 <button
                   key={month}
+                  ref={el => { if (el) monthBtnRefs.current[month] = el }}
                   disabled={!enabled}
                   onClick={() => setDraftMonth(month)}
                   className={`w-full py-3 rounded-xl text-xl transition-colors ${
