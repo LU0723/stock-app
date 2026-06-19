@@ -3170,26 +3170,27 @@ function RewardCalendar({ monthKey, result, usd = false }) {
   const daysInMonth = new Date(year, month, 0).getDate()
   const dayMap = new Map((result?.dailyAsc ?? []).map(d => [d.date.replace(/\//g, '-'), d]))
   const weeks = []
-  const businessDays = []
   for (let day = 1; day <= daysInMonth; day++) {
     const date = `${monthKey}-${String(day).padStart(2, '0')}`
     const dow = new Date(`${date}T00:00:00`).getDay()
     if (dow === 0 || dow === 6) continue
-    businessDays.push({ day, data: dayMap.get(date) ?? null })
+
+    if (weeks.length === 0 || dow === 1) {
+      weeks.push({ row: [null, null, null, null, null] })
+    }
+    const currentWeek = weeks[weeks.length - 1]
+    currentWeek.row[dow - 1] = { day, data: dayMap.get(date) ?? null }
   }
 
-  for (let offset = 0; offset < businessDays.length; offset += 5) {
-    const row = []
-    for (let i = 0; i < 5; i++) {
-      row.push(businessDays[offset + i] ?? null)
-    }
+  for (const week of weeks) {
+    const row = week.row
     const weekDays = row.filter(Boolean)
-    const weekPnl = weekDays.reduce((sum, d) => sum + (d.data?.pnl ?? 0), 0)
+    week.weekPnl = weekDays.reduce((sum, d) => sum + (d.data?.pnl ?? 0), 0)
     const weekBase = weekDays.reduce((sum, d) => {
       if (!d.data || d.data.ret === 0) return sum
       return sum + Math.abs(d.data.pnl / d.data.ret)
     }, 0)
-    weeks.push({ row, weekPnl, weekRet: weekBase > 0 ? weekPnl / weekBase : null })
+    week.weekRet = weekBase > 0 ? week.weekPnl / weekBase : null
   }
 
   return (
