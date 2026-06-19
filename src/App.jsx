@@ -3168,21 +3168,20 @@ function RewardCalendar({ monthKey, result, usd = false }) {
   const { start } = getMonthBounds(monthKey)
   const [year, month] = monthKey.split('-').map(Number)
   const daysInMonth = new Date(year, month, 0).getDate()
-  const firstDow = new Date(`${start}T00:00:00`).getDay()
-  const mondayOffset = firstDow === 0 ? 4 : firstDow - 1
   const dayMap = new Map((result?.dailyAsc ?? []).map(d => [d.date.replace(/\//g, '-'), d]))
   const weeks = []
-  let day = 1 - mondayOffset
-  while (day <= daysInMonth) {
+  const businessDays = []
+  for (let day = 1; day <= daysInMonth; day++) {
+    const date = `${monthKey}-${String(day).padStart(2, '0')}`
+    const dow = new Date(`${date}T00:00:00`).getDay()
+    if (dow === 0 || dow === 6) continue
+    businessDays.push({ day, data: dayMap.get(date) ?? null })
+  }
+
+  for (let offset = 0; offset < businessDays.length; offset += 5) {
     const row = []
     for (let i = 0; i < 5; i++) {
-      if (day < 1 || day > daysInMonth) {
-        row.push(null)
-      } else {
-        const date = `${monthKey}-${String(day).padStart(2, '0')}`
-        row.push({ day, data: dayMap.get(date) ?? null })
-      }
-      day++
+      row.push(businessDays[offset + i] ?? null)
     }
     const weekDays = row.filter(Boolean)
     const weekPnl = weekDays.reduce((sum, d) => sum + (d.data?.pnl ?? 0), 0)
