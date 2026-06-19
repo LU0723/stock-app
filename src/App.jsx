@@ -3007,6 +3007,15 @@ function formatWanAmount(value) {
   return `${sign}${formatNumber(Math.round(abs))}`
 }
 
+function formatCalendarAmount(value) {
+  const abs = Math.abs(Number(value) || 0)
+  const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  if (abs >= 10000) {
+    return `${sign}${(abs / 10000).toFixed(1).replace(/\.0$/, '')}萬`
+  }
+  return `${sign}${Math.round(abs).toLocaleString('zh-TW')}`
+}
+
 function monthKeyFromDate(dateStr) {
   return dateStr.slice(0, 7)
 }
@@ -3101,26 +3110,6 @@ function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
   )
 }
 
-function CalendarInfoModal({ onClose }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center px-8">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative bg-[#262626] text-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
-        <h2 className="text-xl font-semibold text-center mb-5">報酬日曆</h2>
-        <p className="text-base leading-8 text-white/75">
-          月報酬 = 當月的日損益總和。<br />
-          月報酬率 = 月報酬 / 該月第一個有效交易日前的持股市值。<br />
-          日損益依歷史收盤價與你的持股變化紀錄計算。
-        </p>
-        <button
-          onClick={onClose}
-          className="mt-6 w-full py-3 rounded-xl bg-orange-500 text-white text-base font-medium"
-        >我知道了</button>
-      </div>
-    </div>
-  )
-}
-
 function RewardCalendar({ monthKey, result }) {
   const { start } = getMonthBounds(monthKey)
   const [year, month] = monthKey.split('-').map(Number)
@@ -3152,27 +3141,29 @@ function RewardCalendar({ monthKey, result }) {
 
   return (
     <div className="mb-4">
-      <div className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.95fr] gap-1.5 mb-2 px-0.5">
+      <div className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.9fr] gap-1 mb-1.5 px-0.5">
         {['一', '二', '三', '四', '五', '週損益'].map(label => (
-          <div key={label} className="text-center text-xs text-gray-400">{label}</div>
+          <div key={label} className="text-center text-[11px] text-gray-500">{label}</div>
         ))}
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {weeks.map((week, wi) => (
-          <div key={wi} className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.95fr] gap-1.5">
+          <div key={wi} className="grid grid-cols-[repeat(5,minmax(0,1fr))_0.9fr] gap-1">
             {week.row.map((cell, ci) => {
               const pnl = cell?.data?.pnl ?? 0
               const hasData = !!cell?.data
               const color = hasData
-                ? pnl > 0 ? 'bg-red-500/40 border-red-400/20' : pnl < 0 ? 'bg-green-600/40 border-green-500/20' : 'bg-gray-800 border-gray-700'
-                : 'bg-gray-900/40 border-gray-800'
+                ? pnl > 0 ? 'bg-red-50 border-red-100' : pnl < 0 ? 'bg-green-50 border-green-100' : 'bg-gray-50 border-gray-100'
+                : 'bg-white border-gray-100'
               return (
-                <div key={ci} className={`relative aspect-[0.82] rounded-xl border ${color} px-1.5 py-1.5 overflow-hidden`}>
-                  {cell && <span className="absolute right-1.5 top-0.5 text-xs text-gray-300">{cell.day}</span>}
+                <div key={ci} className={`relative aspect-[0.82] rounded-lg border ${color} px-1 py-1 overflow-hidden`}>
+                  {cell && <span className="absolute right-1 top-0.5 text-[10px] text-gray-400">{cell.day}</span>}
                   {hasData && (
                     <div className="h-full flex flex-col justify-end">
-                      <p className="text-[13px] leading-tight font-semibold text-white tabular-nums">{formatWanAmount(pnl)}</p>
-                      <p className="text-[12px] leading-tight text-white/65 tabular-nums">
+                      <p className={`text-[10px] leading-tight font-semibold tabular-nums ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                        {formatCalendarAmount(pnl)}
+                      </p>
+                      <p className="text-[10px] leading-tight text-gray-500 tabular-nums">
                         {cell.data.ret >= 0 ? '+' : ''}{(cell.data.ret * 100).toFixed(2)}%
                       </p>
                     </div>
@@ -3180,14 +3171,14 @@ function RewardCalendar({ monthKey, result }) {
                 </div>
               )
             })}
-            <div className="relative aspect-[0.82] rounded-xl border border-gray-700 bg-gray-900/60 px-1.5 py-1.5 overflow-hidden">
-              <span className="absolute right-1.5 top-0.5 text-xs text-gray-400">{wi + 1}</span>
+            <div className="relative aspect-[0.82] rounded-lg border border-gray-200 bg-gray-50 px-1 py-1 overflow-hidden">
+              <span className="absolute right-1 top-0.5 text-[10px] text-gray-400">{wi + 1}</span>
               {week.weekRet !== null && (
                 <div className="h-full flex flex-col justify-end">
-                  <p className={`text-[13px] leading-tight font-semibold tabular-nums ${week.weekPnl >= 0 ? 'text-red-400' : 'text-green-500'}`}>
-                    {formatWanAmount(week.weekPnl)}
+                  <p className={`text-[10px] leading-tight font-semibold tabular-nums ${week.weekPnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
+                    {formatCalendarAmount(week.weekPnl)}
                   </p>
-                  <p className="text-[12px] leading-tight text-white/55 tabular-nums">
+                  <p className="text-[10px] leading-tight text-gray-500 tabular-nums">
                     {week.weekRet >= 0 ? '+' : ''}{(week.weekRet * 100).toFixed(2)}%
                   </p>
                 </div>
@@ -3289,7 +3280,6 @@ function BacktestView({ isTw, twHoldings }) {
   const [period,      setPeriod]      = useState(7)
   const [showPicker,  setShowPicker]  = useState(false)
   const [showMonthPicker, setShowMonthPicker] = useState(false)
-  const [showInfo, setShowInfo] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState(monthKeyFromDate(todayISOStr()))
   const [customRange, setCustomRange] = useState(null)   // { start, end } | null
 
@@ -3475,59 +3465,50 @@ function BacktestView({ isTw, twHoldings }) {
 
     return (
       <>
-        <div className="bg-[#202020] text-white rounded-2xl p-4 mb-4 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <p className="text-xl font-semibold">報酬日曆</p>
-            <button
-              onClick={() => setShowInfo(true)}
-              className="w-5 h-5 rounded-full border border-white/40 text-white/60 text-xs leading-none"
-              title="計算說明"
-            >i</button>
-          </div>
-
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-white text-gray-900 rounded-2xl p-3 mb-4 shadow-sm border border-gray-100">
+          <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-2">
               <button
                 disabled={!canPrev}
                 onClick={() => setSelectedMonth(addMonths(selectedMonth, -1))}
-                className="w-8 h-8 rounded-full bg-white/5 text-white/60 disabled:opacity-20"
+                className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 disabled:opacity-30"
               >‹</button>
               <button
                 onClick={() => setShowMonthPicker(true)}
-                className="flex items-center gap-1 text-2xl font-semibold"
+                className="flex items-center gap-1 text-lg font-semibold"
               >
                 {monthLabel}
-                <span className="text-white/50 text-lg">⌄</span>
+                <span className="text-gray-400 text-sm">⌄</span>
               </button>
               <button
                 disabled={!canNext}
                 onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
-                className="w-8 h-8 rounded-full bg-white/5 text-white/60 disabled:opacity-20"
+                className="w-7 h-7 rounded-full bg-gray-100 text-gray-500 disabled:opacity-30"
               >›</button>
             </div>
-            <p className="text-sm text-white/50">報酬率</p>
+            <p className="text-xs text-gray-400">報酬率</p>
           </div>
 
-          <div className="flex items-end justify-between mb-5">
-            <p className={`text-4xl font-bold tabular-nums ${totalPnl >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+          <div className="flex items-end justify-between mb-3">
+            <p className={`text-3xl font-bold tabular-nums ${totalPnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
               {display ? formatWanAmount(totalPnl) : '--'}
             </p>
-            <p className={`text-3xl font-bold tabular-nums ${totalReturn >= 0 ? 'text-red-500' : 'text-green-500'}`}>
+            <p className={`text-2xl font-bold tabular-nums ${totalReturn >= 0 ? 'text-red-500' : 'text-green-600'}`}>
               {display ? `${totalReturn >= 0 ? '+' : ''}${(totalReturn * 100).toFixed(2)}%` : '--'}
             </p>
           </div>
 
           {isLoading && (
             <div className="py-8 flex items-center justify-center gap-2">
-              <svg className="animate-spin w-4 h-4 text-white/50" viewBox="0 0 24 24" fill="none">
+              <svg className="animate-spin w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" />
               </svg>
-              <span className="text-xs text-white/50">載入歷史資料中...</span>
+              <span className="text-xs text-gray-400">載入歷史資料中...</span>
             </div>
           )}
 
           {!isLoading && btError && (
-            <div className="py-8 text-center text-sm text-red-300">{btError}</div>
+            <div className="py-8 text-center text-sm text-red-500">{btError}</div>
           )}
 
           {!isLoading && !btError && (
@@ -3535,7 +3516,7 @@ function BacktestView({ isTw, twHoldings }) {
           )}
 
           {!isLoading && !btError && !display && (
-            <p className="text-xs text-white/35 text-center pb-2">此月份無交易資料</p>
+            <p className="text-xs text-gray-400 text-center pb-2">此月份無交易資料</p>
           )}
         </div>
 
@@ -3550,7 +3531,6 @@ function BacktestView({ isTw, twHoldings }) {
             onCancel={() => setShowMonthPicker(false)}
           />
         )}
-        {showInfo && <CalendarInfoModal onClose={() => setShowInfo(false)} />}
       </>
     )
   }
