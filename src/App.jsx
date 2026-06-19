@@ -3044,9 +3044,13 @@ function formatWanAmount(value) {
   return `${sign}${formatNumber(Math.round(abs))}`
 }
 
-function formatCalendarAmount(value) {
+function formatCalendarAmount(value, usd = false) {
   const abs = Math.abs(Number(value) || 0)
   const sign = value > 0 ? '+' : value < 0 ? '-' : ''
+  if (usd) {
+    if (abs >= 1000) return `${sign}$${(abs / 1000).toFixed(1).replace(/\.0$/, '')}K`
+    return `${sign}$${abs.toFixed(abs >= 100 ? 0 : 1)}`
+  }
   if (abs >= 10000) {
     return `${sign}${(abs / 10000).toFixed(1).replace(/\.0$/, '')}萬`
   }
@@ -3160,7 +3164,7 @@ function MonthPickerSheet({ value, minMonth, maxMonth, onConfirm, onCancel }) {
   )
 }
 
-function RewardCalendar({ monthKey, result }) {
+function RewardCalendar({ monthKey, result, usd = false }) {
   const { start } = getMonthBounds(monthKey)
   const [year, month] = monthKey.split('-').map(Number)
   const daysInMonth = new Date(year, month, 0).getDate()
@@ -3211,7 +3215,7 @@ function RewardCalendar({ monthKey, result }) {
                   {hasData && (
                     <div className="h-full flex flex-col justify-end">
                       <p className={`text-[10px] leading-tight font-semibold tabular-nums ${pnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                        {formatCalendarAmount(pnl)}
+                        {formatCalendarAmount(pnl, usd)}
                       </p>
                       <p className="text-[10px] leading-tight text-gray-500 tabular-nums">
                         {cell.data.ret >= 0 ? '+' : ''}{(cell.data.ret * 100).toFixed(2)}%
@@ -3226,7 +3230,7 @@ function RewardCalendar({ monthKey, result }) {
               {week.weekRet !== null && (
                 <div className="h-full flex flex-col justify-end">
                   <p className={`text-[10px] leading-tight font-semibold tabular-nums ${week.weekPnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-                    {formatCalendarAmount(week.weekPnl)}
+                    {formatCalendarAmount(week.weekPnl, usd)}
                   </p>
                   <p className="text-[10px] leading-tight text-gray-500 tabular-nums">
                     {week.weekRet >= 0 ? '+' : ''}{(week.weekRet * 100).toFixed(2)}%
@@ -3327,6 +3331,7 @@ function DatePickerSheet({ minDate, onConfirm, onCancel }) {
 }
 
 function BacktestView({ isTw, twHoldings }) {
+  const useMonthlyCalendar = true
   const [period,      setPeriod]      = useState(7)
   const [showPicker,  setShowPicker]  = useState(false)
   const [showMonthPicker, setShowMonthPicker] = useState(false)
@@ -3364,14 +3369,13 @@ function BacktestView({ isTw, twHoldings }) {
 
   const minDate = isTw ? earliestTwDate : earliestUsDate
   const today = todayISOStr()
-  const minMonth = monthKeyFromDate(earliestTwDate)
+  const minMonth = monthKeyFromDate(minDate)
   const maxMonth = monthKeyFromDate(today)
 
   useEffect(() => {
-    if (!isTw) return
     if (selectedMonth < minMonth) setSelectedMonth(minMonth)
     if (selectedMonth > maxMonth) setSelectedMonth(maxMonth)
-  }, [isTw, selectedMonth, minMonth, maxMonth])
+  }, [selectedMonth, minMonth, maxMonth])
 
   // 市場切換時清除自訂區間
   const prevIsTwRef = useRef(isTw)
@@ -3385,7 +3389,7 @@ function BacktestView({ isTw, twHoldings }) {
 
   // 計算本次回測的日期區間
   let startDate, endDate
-  if (isTw) {
+  if (useMonthlyCalendar) {
     const bounds = getMonthBounds(selectedMonth)
     startDate = bounds.start
     endDate   = bounds.end > today ? today : bounds.end
@@ -3505,13 +3509,14 @@ function BacktestView({ isTw, twHoldings }) {
     setCustomRange({ start, end })
   }
 
-  if (isTw) {
+  if (useMonthlyCalendar) {
     const [selYear, selMonth] = selectedMonth.split('-')
     const canPrev = addMonths(selectedMonth, -1) >= minMonth
     const canNext = addMonths(selectedMonth, 1) <= maxMonth
     const monthLabel = `${selYear}/${selMonth} 報酬`
     const totalPnl = display?.totalPnL ?? 0
     const totalReturn = display?.totalReturn ?? 0
+    const pnlText = isTw ? formatWanAmount(totalPnl) : `${totalPnl >= 0 ? '+' : ''}$${fmtUsd(totalPnl)}`
 
     return (
       <>
@@ -3541,7 +3546,7 @@ function BacktestView({ isTw, twHoldings }) {
 
           <div className="flex items-end justify-between mb-3">
             <p className={`text-3xl font-bold tabular-nums ${totalPnl >= 0 ? 'text-red-500' : 'text-green-600'}`}>
-              {display ? formatWanAmount(totalPnl) : '--'}
+              {display ? pnlText : '--'}
             </p>
             <p className={`text-2xl font-bold tabular-nums ${totalReturn >= 0 ? 'text-red-500' : 'text-green-600'}`}>
               {display ? `${totalReturn >= 0 ? '+' : ''}${(totalReturn * 100).toFixed(2)}%` : '--'}
@@ -3562,7 +3567,7 @@ function BacktestView({ isTw, twHoldings }) {
           )}
 
           {!isLoading && !btError && (
-            <RewardCalendar monthKey={selectedMonth} result={display} />
+            <RewardCalendar monthKey={selectedMonth} result={display} usd={!isTw} />
           )}
 
           {!isLoading && !btError && !display && (
