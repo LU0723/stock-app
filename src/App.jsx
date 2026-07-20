@@ -255,16 +255,6 @@ function getMonthOptions() {
 // fetchStockMap(symbols) → { [symbol]: { name, price, yesterdayClose } }
 // 可被庫存頁與自選股共用
 
-// z='-' 時用委買賣中間價估算現價
-function bidAskMid(a, b) {
-  const ask = parseFloat((a || '').split('_')[0])
-  const bid = parseFloat((b || '').split('_')[0])
-  if (!isNaN(ask) && ask > 0 && !isNaN(bid) && bid > 0) return (ask + bid) / 2
-  if (!isNaN(ask) && ask > 0) return ask
-  if (!isNaN(bid) && bid > 0) return bid
-  return null
-}
-
 async function fetchStockMap(symbols) {
   if (symbols.length === 0) return {}
 
@@ -284,8 +274,7 @@ async function fetchStockMap(symbols) {
     if (!item.c) continue
     const yc    = parseFloat(item.y)
     const rawZ  = item.z !== '-' ? parseFloat(item.z) : null
-    const mid   = (rawZ === null) ? bidAskMid(item.a, item.b) : null
-    const price = (rawZ !== null && !isNaN(rawZ)) ? rawZ : (mid ?? null)
+    const price = (rawZ !== null && !isNaN(rawZ)) ? rawZ : null
     if (price === null && isNaN(yc)) continue
 
     // 漲停/跌停價：去除逗號等非數字字符後 parseFloat
@@ -307,7 +296,7 @@ async function fetchStockMap(symbols) {
 
     map[item.c] = {
       name:           item.n,
-      price,                               // null = 完全無法估算現價
+      price,                               // null = 無最新成交價，不使用買賣價估算
       yesterdayClose: ycValid ? yc : 0,
       basePrice,
       limitUp:   limValid ? limitUp   : null,
