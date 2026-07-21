@@ -255,6 +255,30 @@ function getMonthOptions() {
 // fetchStockMap(symbols) → { [symbol]: { name, price, yesterdayClose } }
 // 可被庫存頁與自選股共用
 
+function parseTwPrice(v) {
+  const n = parseFloat(String(v ?? '').replace(/,/g, '').split('_')[0])
+  return !isNaN(n) && n > 0 ? n : null
+}
+
+function pickTwPrice(item, limitUp, limitDown) {
+  const z  = parseTwPrice(item.z)
+  const pz = parseTwPrice(item.pz)
+  const oz = parseTwPrice(item.oz)
+  if (z !== null) return { price: z, priceSource: 'z' }
+  if (pz !== null) return { price: pz, priceSource: 'pz' }
+  if (oz !== null) return { price: oz, priceSource: 'oz' }
+
+  const firstAsk = parseTwPrice(item.a)
+  const firstBid = parseTwPrice(item.b)
+  if (limitUp !== null && firstBid === limitUp && firstAsk === null) {
+    return { price: limitUp, priceSource: 'limit' }
+  }
+  if (limitDown !== null && firstAsk === limitDown && firstBid === null) {
+    return { price: limitDown, priceSource: 'limit' }
+  }
+  return { price: null, priceSource: 'none' }
+}
+
 async function fetchStockMap(symbols) {
   if (symbols.length === 0) return {}
 
@@ -272,17 +296,16 @@ async function fetchStockMap(symbols) {
   const map = {}
   for (const item of items) {
     if (!item.c) continue
-    const yc    = parseFloat(item.y)
-    const rawZ  = item.z !== '-' ? parseFloat(item.z) : null
-    const price = (rawZ !== null && !isNaN(rawZ)) ? rawZ : null
-    if (price === null && isNaN(yc)) continue
+    const yc = parseTwPrice(item.y)
 
     // 漲停/跌停價：去除逗號等非數字字符後 parseFloat
-    const limitUp   = parseFloat((item.u || '').replace(/,/g, '').split('_')[0])
-    const limitDown = parseFloat((item.w || '').replace(/,/g, '').split('_')[0])
+    const limitUp   = parseTwPrice(item.u)
+    const limitDown = parseTwPrice(item.w)
+    const { price, priceSource } = pickTwPrice(item, limitUp, limitDown)
+    if (price === null && yc === null) continue
 
-    const ycValid  = !isNaN(yc) && yc > 0
-    const limValid = !isNaN(limitUp) && limitUp > 0 && !isNaN(limitDown) && limitDown > 0
+    const ycValid  = yc !== null
+    const limValid = limitUp !== null && limitDown !== null
 
     // referencePrice = (漲停 + 跌停) / 2，代表當日基準價（除息日會與昨收不同）
     const referencePrice = limValid ? (limitUp + limitDown) / 2 : (ycValid ? yc : 0)
@@ -296,7 +319,8 @@ async function fetchStockMap(symbols) {
 
     map[item.c] = {
       name:           item.n,
-      price,                               // null = 無最新成交價，不使用買賣價估算
+      price,                               // null = 無可用成交/參考價，不使用買賣中間價估算
+      priceSource,                         // z / pz / oz / limit / none（內部除錯用，不顯示）
       yesterdayClose: ycValid ? yc : 0,
       basePrice,
       limitUp:   limValid ? limitUp   : null,
