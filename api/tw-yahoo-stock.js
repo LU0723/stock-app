@@ -14,10 +14,39 @@ function buildMissing(symbol) {
     price: null,
     yesterdayClose: 0,
     basePrice: 0,
+    limitUp: null,
+    limitDown: null,
     marketState: 'UNKNOWN',
     yahooSymbol: null,
     priceSource: 'yahoo-none',
     strictPrice: true,
+  }
+}
+
+function getTaiwanTick(price) {
+  if (price < 10) return 0.01
+  if (price < 50) return 0.05
+  if (price < 100) return 0.1
+  if (price < 500) return 0.5
+  if (price < 1000) return 1
+  return 5
+}
+
+function roundToTick(price, direction) {
+  if (!(price > 0)) return null
+  const tick = getTaiwanTick(price)
+  const scaled = price / tick
+  const rounded = direction === 'up'
+    ? Math.floor(scaled + 1e-8)
+    : Math.ceil(scaled - 1e-8)
+  return Number((rounded * tick).toFixed(2))
+}
+
+function calculateTaiwanLimits(previousClose) {
+  if (!(previousClose > 0)) return { limitUp: null, limitDown: null }
+  return {
+    limitUp: roundToTick(previousClose * 1.1, 'up'),
+    limitDown: roundToTick(previousClose * 0.9, 'down'),
   }
 }
 
@@ -40,12 +69,15 @@ async function fetchYahooSymbol(yahooSymbol) {
   const previousClose = typeof meta.previousClose === 'number'
     ? meta.previousClose
     : (typeof meta.chartPreviousClose === 'number' ? meta.chartPreviousClose : 0)
+  const { limitUp, limitDown } = calculateTaiwanLimits(previousClose)
 
   return {
     name: meta.shortName || meta.longName || yahooSymbol,
     price,
     yesterdayClose: previousClose,
     basePrice: previousClose,
+    limitUp,
+    limitDown,
     marketState: meta.marketState || 'UNKNOWN',
     yahooSymbol,
     priceSource: price === null ? 'yahoo-none' : 'yahoo',

@@ -1595,8 +1595,8 @@ function WatchlistRow({ item, fixed = false, onDelete, dragHandle }) {
   const sign  = changeAmt > 0 ? '+' : ''
 
   // 漲停/跌停判定
-  const isLimitUp   = !fixed && item.limitUp   > 0 && item.price >= item.limitUp
-  const isLimitDown = !fixed && item.limitDown  > 0 && item.price <= item.limitDown
+  const isLimitUp   = !fixed && item.limitUp   > 0 && item.price >= item.limitUp - 0.001
+  const isLimitDown = !fixed && item.limitDown  > 0 && item.price <= item.limitDown + 0.001
 
   return (
     <div className="border-b border-gray-100 last:border-b-0">
