@@ -279,7 +279,38 @@ function pickTwPrice(item, limitUp, limitDown) {
   return { price: null, priceSource: 'none' }
 }
 
-async function fetchStockMap(symbols) {
+function _isTwIntraday() {
+  const now = new Date()
+  const day = now.getDay()
+  if (day === 0 || day === 6) return false
+  const minutes = now.getHours() * 60 + now.getMinutes()
+  return minutes >= 9 * 60 && minutes < 13 * 60 + 35
+}
+
+function buildMissingYahooTwStock(symbol) {
+  return {
+    name: symbol,
+    price: null,
+    yesterdayClose: 0,
+    basePrice: 0,
+    limitUp: null,
+    limitDown: null,
+    priceSource: 'yahoo-none',
+    strictPrice: true,
+  }
+}
+
+async function fetchYahooTwStockMap(symbols) {
+  if (symbols.length === 0) return {}
+
+  const url = `/api/tw-yahoo-stock?symbols=${encodeURIComponent(symbols.join(','))}`
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`Yahoo API failed: ${res.status}`)
+
+  return await res.json()
+}
+
+async function fetchTwseStockMap(symbols) {
   if (symbols.length === 0) return {}
 
   const exChList = symbols
@@ -328,6 +359,24 @@ async function fetchStockMap(symbols) {
     }
   }
   return map
+}
+
+async function fetchStockMap(symbols) {
+  if (symbols.length === 0) return {}
+
+  if (!_isTwIntraday()) {
+    return fetchTwseStockMap(symbols)
+  }
+
+  const indexSymbols = symbols.filter(s => s === 't00')
+  const stockSymbols = symbols.filter(s => s !== 't00')
+  const [indexMap, yahooMap] = await Promise.all([
+    fetchTwseStockMap(indexSymbols),
+    fetchYahooTwStockMap(stockSymbols).catch(() => Object.fromEntries(
+      stockSymbols.map(sym => [sym, buildMissingYahooTwStock(sym)])
+    )),
+  ])
+  return { ...indexMap, ...yahooMap }
 }
 
 // ─── Taiwan stock session cache（同頁面載入期間有效，不寫 localStorage）────────
@@ -516,7 +565,7 @@ async function fetchPrices(holdings, force = false) {
     }
     // price: 有即時成交價用它；否則保留已存價格（若從未有資料才用昨收補底）
     const price = found.price !== null ? found.price
-                : (h.price > 0 ? h.price : found.yesterdayClose)
+                : (found.strictPrice ? 0 : (h.price > 0 ? h.price : found.yesterdayClose))
     return { ...h, price, yesterdayClose: found.yesterdayClose, basePrice: found.basePrice }
   })
 }
@@ -1104,7 +1153,7 @@ function WatchlistForm({ onSave, onCancel, existingSymbols = [] }) {
       onSave({
         symbol:         sym,
         name:           info.name || name.trim() || sym,
-        price:          info.price,
+        price:          info.price !== null ? info.price : 0,
         yesterdayClose: info.yesterdayClose,
         basePrice:      info.basePrice,
         limitUp:        info.limitUp,
@@ -1315,7 +1364,7 @@ function WatchlistPage() {
             const found = map[item.symbol]
             if (!found) return item
             const price = found.price !== null ? found.price
-                        : (item.price > 0 ? item.price : found.yesterdayClose)
+                        : (found.strictPrice ? 0 : (item.price > 0 ? item.price : found.yesterdayClose))
             return {
               ...item,
               price,
